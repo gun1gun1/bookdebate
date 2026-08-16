@@ -146,6 +146,31 @@ CHECK 제약(애플리케이션 레벨 검증과 별개로 DB에도 두는 것�
 
 인덱스: `(ip, attempted_at)` — 10분 윈도우 조회가 빈번하므로 필요.
 
+### topic_templates / topic_template_items (Phase 3)
+
+회차 템플릿. 독서토론앱.md C절 원안에는 없던 테이블이다 — 템플릿 기능은 Phase 0 후속 결정으로 추가됐지만 스키마가 빠져 있어 Phase 3에서 새로 설계했다(docs/DECISIONS.md 참고).
+
+| 컬럼(topic_templates) | 타입 | 제약 | 비고 |
+|---|---|---|---|
+| id | uuid | PK | |
+| name | text | not null | |
+| created_at | timestamptz | not null default now() | |
+
+| 컬럼(topic_template_items) | 타입 | 제약 | 비고 |
+|---|---|---|---|
+| id | uuid | PK | |
+| template_id | uuid | FK -> topic_templates.id, not null, **ON DELETE CASCADE** | |
+| order_no | integer | not null | |
+| kind | text | not null, check in ('free','excerpt','choice') | |
+| title | text | not null | |
+| body | text | | |
+| assigned_role | text | check in ('selector','host'), nullable | 특정 멤버가 아니라 "그 회차의 선정자/진행자"라는 역할 |
+| has_rating | boolean | not null default false | |
+
+제약: `UNIQUE (template_id, order_no)`.
+
+`assigned_role`이 `topics.assigned_member_id`(특정 멤버 uuid)와 다른 점: 템플릿은 여러 회차에 재사용되므로 특정 멤버로 고정하면 매번 틀리게 적용된다. 회차에 템플릿을 적용할 때 `assigned_role`을 그 회차의 `selector_member_id`/`host_member_id`로 해석해 실제 `topics.assigned_member_id`를 채운다(`lib/admin/topics.ts`). "이전 회차 구조 복제" 기능도 같은 파이프라인을 탄다 — 이전 회차의 `topics.assigned_member_id`가 그 회차의 selector/host와 같으면 역할로 되돌리고, 아니면 담당자 없음으로 취급한다.
+
 ## `topics.kind`에 따른 answers/replies 사용 방식
 
 | kind | answers 사용 | replies 사용 | 특수 컬럼 |

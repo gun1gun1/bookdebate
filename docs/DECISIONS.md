@@ -152,4 +152,110 @@ Phase 1 착수 전 정해야 했던 데이터/정책 질문 6개에 사용자가
 
 **영향받는 문서**: `독서토론앱.md`의 Phase 1/4 본문과 체크포인트 표는 `/_debug`로 적혀 있으나 실제 경로는 `/debug`로 읽는다. 이 파일 외 별도 수정은 하지 않았다(계획서 원문은 그대로 두고 이 결정 기록으로 정정한다).
 
+### Phase 2: 인증 + 라우트 보호 (2026-08-16)
+
+**결정**: `middleware.ts` → `proxy.ts`로 파일명·export 함수명(`proxy`)을 변경.
+
+**이유**: Next.js 16부터 `middleware` 파일 컨벤션이 deprecated되고 `proxy`로 이름이 바뀌었다(`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`). 로컬에서 `middleware.ts`로 실행하면 deprecation 경고가 뜬다. 계획서 원문은 `middleware.ts`로 적혀 있으나 실제 파일은 `proxy.ts`다.
+
+**결정**: 2단계 로그인(공통 암호 → 이름 선택) 사이에 `preauth` 쿠키(서명된 JWT, 15분 만료)를 둔다.
+
+**이유**: 공통 암호를 통과하기 전까지 `members.name` 목록을 브라우저에 노출하면 안 된다("외부 차단"의 의미가 무너짐). 그런데 이름 선택 단계(`login(memberId, pin?)`)가 `memberId`만으로 동작하면, 공통 암호를 몰라도 유효한 `memberId`만 알면 로그인되는 구멍이 생긴다. 그래서 1단계 성공 시에만 짧은 만료의 `preauth` 쿠키를 심고, 2단계는 이 쿠키가 유효할 때만 세션을 발급한다.
+
+**결정**: `lib/auth.ts`는 `docs/SECURITY.md`가 말한 3개(`getSession`/`requireSession`/`requireAdmin`)가 아니라 6개(+`verifySitePassword`/`login`/`logout`)를 export한다.
+
+**이유**: SECURITY.md의 "3개만 노출"은 **다른 코드가 세션을 읽을 때 의존하는, 인증 방식이 바뀌어도 유지되는 안정적 API**를 의미하는 것으로 해석했다. 로그인/로그아웃 자체는 현재 인증 방식(공통 암호+이름 선택)에 종속적인 동작이라, 인증 방식이 바뀌면(예: OAuth 도입) 이 셋도 같이 바뀌는 게 자연스럽다. 반대로 비밀번호 검증·PIN 검증·rate limit·쿠키 서명 같은 세부 로직은 전부 파일 내부 비공개 함수로만 유지해 "인증 로직은 전부 lib/auth.ts 한 파일에" 원칙은 지켰다.
+
+**결정**: 관리자 판별을 두 층위로 — `proxy.ts`는 JWT의 `role` 클레임만으로 `/admin/*`을 1차 차단(DB 조회 없음, Edge), `requireAdmin()`은 매 요청 DB에서 `role`을 재조회해 2차 확인. `requireSession()`도 DB에서 `is_active`를 재확인한다.
+
+**이유**: SECURITY.md가 세션 payload를 "민감한 판단에 그대로 쓰지 말고 매 요청 DB 재조회"하라고 명시했다. JWT의 `role`은 발급 시점 값이라 관리자 권한이 회수되거나 계정이 비활성화돼도 세션 만료(90일) 전까지는 유효해 보일 수 있다 — 미들웨어는 성능을 위해 JWT만 빠르게 보되, 실제 쓰기 작업 앞의 `requireAdmin()`/`requireSession()`은 항상 DB를 다시 본다.
+
+**결정**: rate limit(`login_attempts`, IP당 10분 내 5회 실패 시 차단)을 공통 암호 검증과 PIN 검증 양쪽에 모두 적용.
+
+**이유**: PIN이 4자리(`REQUIRE_MEMBER_PIN=true`일 때)라 무차별 대입에 취약한데, SECURITY.md의 rate limit 절은 "공통 암호"만 언급하고 있었다. 같은 `login_attempts` 테이블·같은 IP 기준으로 PIN 실패도 카운트해 별도 메커니즘 없이 동일한 방어선을 재사용했다.
+
+**결정**: bcrypt 구현체로 `bcrypt`(네이티브) 대신 `bcryptjs`(순수 JS)를 쓴다.
+
+**이유**: 네이티브 바인딩은 Windows 로컬 개발 환경(빌드 도구 미보장)과 Vercel 서버리스 양쪽에서 설치 문제를 일으킬 수 있다. `bcryptjs`는 순수 JS라 두 환경 모두에서 추가 설정 없이 동작한다.
+
+**결정**: `lib/supabase/types.ts`의 `Database["public"]`에 `Views`/`Functions`를 빈 `Record`로, 각 테이블에 `Relationships: []`를 추가했다.
+
+**이유**: `@supabase/postgrest-js`(v2.112대)의 `GenericSchema`/`GenericTable` 타입이 이 필드들을 요구한다. 빠져 있으면 `Schema`가 조용히 `never`로 추론돼 `.insert()`/`.eq()`/`.select()` 체인의 타입이 전부 깨진다(런타임 에러는 아니고 타입 체크만 실패). Phase 1의 `/debug` 페이지는 이 문제를 우연히 피해 갔지만(단순 `.select()` 위주), Phase 2의 `lib/auth.ts`가 `.insert()`/`.eq()`를 쓰면서 드러났다.
+
+**결정**: 로컬 `.env.local`에 bcrypt 해시(`SITE_PASSWORD_HASH`)를 넣을 때 모든 `$`를 `\$`로 이스케이프한다.
+
+**이유**: Next.js(`@next/env`, 내부적으로 `dotenv-expand` 사용)가 `.env` 파일을 읽을 때 `$2b$12$...` 같은 문자열을 `$VAR` 변수 치환 문법으로 오인해 정의되지 않은 부분을 빈 문자열로 바꿔버린다 — 실제로 이 때문에 정확한 비밀번호를 입력해도 로그인이 실패하는 버그가 있었다(해시가 조용히 깨짐, 에러 없음). `\$`로 이스케이프하면 `dotenv-expand`가 리터럴 `$`로 되돌려놓는다. Vercel 환경변수는 이런 치환을 하지 않으므로 그쪽엔 이스케이프하지 않은 원본 해시를 등록해야 한다(`.env.example`에 주석으로 남김).
+
+### Phase 3: 관리자 + 템플릿 + 이관 (2026-08-16)
+
+**결정**: 회차 템플릿 스키마를 이번에 처음 설계했다(`topic_templates`/`topic_template_items`, `docs/SCHEMA.md` 참고). 담당자는 특정 멤버 uuid가 아니라 `assigned_role`('selector'|'host'|null)로 저장하고, 회차에 적용할 때 그 회차의 `selector_member_id`/`host_member_id`로 해석한다.
+
+**이유**: 독서토론앱.md C절 데이터 모델에는 템플릿 테이블이 아예 없었다 — 템플릿 기능은 Phase 0 후속 결정으로 추가됐지만 스키마가 빠졌다. 템플릿은 여러 회차에 재사용되므로 담당자를 특정 멤버로 고정하면 매번 틀리게 적용된다.
+
+**결정**: "템플릿에서 시작"과 "이전 회차 구조 복제"가 `lib/admin/topics.ts`의 같은 파이프라인(`TopicSpec[]` → `applyTopicSpecs()`)을 공유한다. 이전 회차 복제는 그 회차의 `topics.assigned_member_id`가 `selector_member_id`/`host_member_id`와 같으면 역할로 되돌리고, 아니면 담당자 없음으로 취급한다.
+
+**이유**: 두 기능이 본질적으로 "논제 목록(역할 기반) → 새 회차에 적용"이라는 같은 동작이라 로직을 중복시킬 이유가 없었다.
+
+**결정**: `lib/supabase/types.ts`의 모든 테이블에 실제 FK를 반영한 `Relationships` 배열을 채워 넣었다(Phase 2에서는 빈 `[]`로만 두었음).
+
+**이유**: `@supabase/postgrest-js`는 `.select("book:books(title)")` 같은 중첩 조인(embed) 문자열을 `Relationships` 메타데이터로 검증·타입화한다. `Relationships: []`인 채로는 Schema 자체는 `never`를 벗어났어도 embed가 있는 select 문의 결과 타입이 통째로 `never`로 깨진다(Phase 3에서 `/admin/sessions`, `/admin/templates`가 `book:books(...)`, `topic_template_items(...)` 임베드를 쓰면서 발견). 대신 실제 FK(`sessions.book_id`, `topics.session_id` 등)를 명시했다.
+
+**결정**: Server Component(`page.tsx`)에서 클로저를 만들어 Client Component에 함수 prop으로 직접 넘기지 않는다 — 그 자리에 필요한 클로저 생성은 별도의 작은 Client Component(예: `TemplateCard.tsx`)로 옮긴다.
+
+**이유**: "Functions cannot be passed directly to Client Components unless... 'use server'" 런타임 에러를 실제로 겪었다(`app/admin/templates/page.tsx`가 `<DeleteButton action={() => deleteTemplateAction(id)} />`를 직접 렌더링했을 때). Server Action을 가리키는 클로저라도, 그 클로저 자체가 "use server"로 마크되지 않으면 서버→클라이언트 경계를 못 넘는다. 반면 이미 "use client"인 컴포넌트(`BookRow`, `SessionRow`, `TopicRow`) 내부에서 만든 클로저를 그 안의 자식(`DeleteButton`)에 넘기는 것은 client-to-client라 문제없다.
+
+**결정**: 삭제 확인은 `window.confirm()` 대신 같은 자리에서 "삭제" → "정말 삭제"/"취소"로 바뀌는 인라인 2단계 버튼(`components/admin/DeleteButton.tsx`)으로 구현했다.
+
+**이유**: 네이티브 confirm() 다이얼로그는 브라우저 자동화(테스트, 스크린샷 도구)의 이후 이벤트 수신을 막는다. Phase 4에서 실제 디자인 시스템의 모달 컴포넌트로 교체될 임시 구현이다.
+
+**결정**: 답변/논제가 이미 있는 리소스(책, 회차, 논제)의 삭제는 FK 에러를 그대로 노출하지 않고, 삭제 액션 안에서 참조 개수를 먼저 세어 사람이 읽을 수 있는 메시지로 차단한다(`docs/SPEC.md`가 명시한 논제뿐 아니라 책·회차 삭제에도 동일 패턴 적용).
+
+**이유**: 관련 FK(`sessions.book_id`, `topics.session_id`, `answers.topic_id`)에 `ON DELETE CASCADE`가 없어 어차피 Postgres가 막아주긴 하지만, 원문 제약 위반 에러 메시지는 관리자에게 무슨 뜻인지 알려주지 않는다.
+
+**결정**: 붙여넣기 파서(`lib/admin/importParser.ts`)의 kind 판정은 논제 제목 줄과 그 뒤 안내문을 모두 검사한다(제목만 보지 않는다).
+
+**이유**: 실제 문서에서 "■ 인상 깊게 읽은 부분이나 발췌"처럼 제목 줄 자체에 "발췌"가 들어가는 경우가 흔한데, 제목을 제외한 안내문만 검사하도록 처음 짰다가 이런 논제가 `free`로 잘못 판정되는 버그를 발견해 고쳤다(직접 만든 샘플 텍스트로 `npx tsx`로 파서만 단독 실행해서 검증). 실제 구글 문서 샘플이 없어 이 파서의 세부 정규식(발췌 시작 줄 `이름 발췌`, 라벨 `이유`/`사유 더하기`, `이름:` 줄)은 CLAUDE.md 설명을 기반으로 이번에 처음 확정한 것이며, 미리보기 화면이 실제 저장 전 마지막 방어선이라는 전제(SECURITY.md)로 설계했다.
+
+### Phase 4: 참여자 화면 (2026-08-16)
+
+**결정**: 별점 위젯을 특정 순번(논제 1번)이 아니라 `has_rating=true`인 논제에 붙인다(`docs/OPEN_QUESTIONS.md` #13 해결).
+
+**이유**: 관리자가 템플릿 구성을 바꾸거나 별점 논제 순번을 옮겨도 코드 수정 없이 따라가야 한다. `has_rating`이 이미 실질적인 "이 논제에 별점이 붙는다"는 표시이므로 위치 대신 이 플래그를 기준으로 렌더링하면 위치와 무관해진다.
+
+**결정**: `draft` 상태 회차는 `/`(회차 목록)에 아직 올리지 않는다. `/s/[id]`로 직접 접근하면 기존 규칙대로 조회는 되고 작성만 막힌다.
+
+**이유**: `docs/SPEC.md` 화면1 명세가 "진행 중"과 "지난 회차"만 명시하고 `draft` 노출 방식은 정하지 않았다 — 스펙에 없는 걸 임의로 추가하지 않는 쪽을 택했다. 필요해지면(관리자가 미리 링크를 공유해 참여자가 논제를 미리 읽게 하고 싶은 경우 등) 나중에 추가할 수 있다.
+
+**결정**: 회차 상세(`/s/[id]`)의 선택된 뷰(`?view=`)와 논제(`?topic=`)를 URL 쿼리로 관리한다. 값이 없거나 유효하지 않으면 각각 `topic`, 첫 논제로 대체한다.
+
+**이유**: 새로고침·공유 시에도 보던 화면이 유지되어야 한다(공유 문구로 받은 링크를 눌렀을 때 항상 논제별 뷰 첫 화면으로 튕기면 안 됨).
+
+**결정**: "작성 중 이탈 시 확인창"의 적용 범위를 좁혔다 — 탭 닫기/새로고침은 `beforeunload`로 완전히 막지만, 앱 내부 이동은 `/s/[id]` 안의 논제 사이드바·뷰 탭 전환(내가 만든 client-side 상태 전환)에만 `confirm()`을 건다. 헤더 로그아웃이나 다른 페이지로의 임의 링크 이동까지는 막지 않는다.
+
+**이유**: Next.js App Router에는 Pages Router의 `routeChangeStart` 같은 전역 네비게이션 가로채기 API가 없다. 모든 이동 경로를 다 막으려면 커스텀 라우터 래핑 같은 과한 작업이 필요해, 실제로 이탈이 가장 잦이 일어나는 지점(논제 전환)만 확실히 막는 쪽을 택했다.
+
+**결정**: `components/admin/DeleteButton.tsx`를 `components/DeleteButton.tsx`로 옮기고 `confirmLabel` prop을 추가했다.
+
+**이유**: 참여자 화면(본인 answer/reply 삭제, 특히 "사유더하기 N개도 함께 삭제됩니다" 경고)도 admin과 같은 인라인 2단계 확인 패턴이 필요했다. admin 전용 폴더에 있을 이유가 없어져 공용 위치로 옮겼다.
+
+**결정**: 본문 폰트를 Pretendard로 교체하면서 `pretendard` npm 패키지(자체 호스팅, 변수 폰트 1개 파일)를 쓰고, create-next-app이 기본으로 넣어준 Geist 폰트(`next/font/google`, 빌드 시 Google Fonts 네트워크 요청 필요)와 다크모드 미디어쿼리를 제거했다.
+
+**이유**: `CLAUDE.md` 디자인 지침이 Pretendard를 명시한다. 자체 호스팅 패키지를 쓰면 Vercel 빌드가 Google Fonts에 의존하지 않아도 된다는 부수적 이점도 있다. 다크모드 미디어쿼리는 이미 기록된 "다크모드 없음" 결정과 충돌해서 제거했다.
+
+**결정**: `docs/SCHEMA.md`가 요구한 "미작성 판정 로직 한 곳에 모으기"를 `lib/topics.ts`의 `isAnswerComplete()` 하나로 구현하고, `/`(참여 현황), 사이드바 점 표시, 매트릭스 뷰가 전부 이 함수를 재사용한다.
+
+**결정**: 관리자의 타인 answer/reply 권한을 `docs/SECURITY.md` 권한 매트릭스 그대로 구현했다 — **answer는 삭제만 가능(수정 불가)**, **reply는 수정·삭제 모두 가능**. 화면에서도 그렇게 구분해 노출한다(타인 answer 카드엔 삭제 버튼만, 타인 reply엔 수정+삭제 버튼 둘 다).
+
+**이유**: 앞서 기록한 "관리자도 타인 명의로 답변을 대리 작성하지 않는다" 결정은 answer(본문 콘텐츠)에 대한 것이고, reply(사유 더하기)는 SECURITY.md 매트릭스에 명시적으로 "타인 reply 수정/삭제: 가능(관리)"로 되어 있어 그대로 따랐다 — 서로 다른 항목이라 충돌이 아니다.
+
+### Phase 5: 배포 + 일시정지 방지 + 점검 (2026-08-16)
+
+**결정**: `proxy.ts`의 matcher에 `api/keep-alive`를 예외로 추가했다(`login`, `api/auth`에 이어).
+
+**이유**: `/api/keep-alive`는 Vercel Cron이 로그인 세션 없이 `CRON_SECRET`만으로 호출한다. 예외로 두지 않으면 미들웨어가 세션 쿠키가 없다는 이유로 매번 `/login`으로 리다이렉트해 cron이 항상 실패한다. 라우트 자체는 `CRON_SECRET` 검증으로 별도 보호되므로 미들웨어 예외가 곧 무방비를 뜻하지 않는다.
+
+**결정**: 로컬 개발용 `.env.local`에도 `CRON_SECRET`을 채워서 `/api/keep-alive`를 실제로 curl로 검증했다(인증 없음/오답 401, 정답 200).
+
+**이유**: 배포 후 처음 발견하면 늦다 — 로컬에서 인증 실패/성공 두 경로 다 확인하는 게 비용이 거의 안 든다. 로컬 값과 Vercel에 등록할 값은 서로 달라도 무방하다(둘 다 무작위 문자열일 뿐).
+
 *(이후 Phase 종료 시, 최초 계획에서 실제로 바뀐 결정을 아래에 시간순으로 추가한다.)*

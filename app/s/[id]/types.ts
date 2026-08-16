@@ -1,0 +1,34 @@
+import type { TopicKind } from "@/lib/supabase/types";
+
+export type Member = { id: string; name: string };
+
+export type Reply = {
+  id: string;
+  member_id: string;
+  body: string;
+  created_at: string;
+  member: { name: string } | null;
+};
+
+export type Answer = {
+  id: string;
+  member_id: string;
+  body: string | null;
+  excerpt_text: string | null;
+  excerpt_reason: string | null;
+  submitted_at: string | null;
+  member: { name: string } | null;
+  replies: Reply[];
+};
+
+export type Topic = {
+  id: string;
+  order_no: number;
+  kind: TopicKind;
+  title: string;
+  body: string | null;
+  has_rating: boolean;
+  answers: Answer[];
+};
+
+export type Rating = { member_id: string; stars: number };

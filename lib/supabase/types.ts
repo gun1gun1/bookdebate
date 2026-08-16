@@ -1,6 +1,7 @@
 export type TopicKind = "free" | "excerpt" | "choice";
 export type MemberRole = "member" | "admin";
 export type SessionStatus = "draft" | "open" | "closed";
+export type TemplateAssignedRole = "selector" | "host";
 
 export interface Database {
   public: {
@@ -23,6 +24,7 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["books"]["Insert"]>;
+        Relationships: [];
       };
       members: {
         Row: {
@@ -44,6 +46,7 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["members"]["Insert"]>;
+        Relationships: [];
       };
       sessions: {
         Row: {
@@ -69,6 +72,26 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["sessions"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "sessions_book_id_fkey";
+            columns: ["book_id"];
+            referencedRelation: "books";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_selector_member_id_fkey";
+            columns: ["selector_member_id"];
+            referencedRelation: "members";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_host_member_id_fkey";
+            columns: ["host_member_id"];
+            referencedRelation: "members";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       topics: {
         Row: {
@@ -94,6 +117,20 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["topics"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "topics_session_id_fkey";
+            columns: ["session_id"];
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "topics_assigned_member_id_fkey";
+            columns: ["assigned_member_id"];
+            referencedRelation: "members";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       answers: {
         Row: {
@@ -117,6 +154,20 @@ export interface Database {
           updated_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["answers"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "answers_topic_id_fkey";
+            columns: ["topic_id"];
+            referencedRelation: "topics";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "answers_member_id_fkey";
+            columns: ["member_id"];
+            referencedRelation: "members";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       replies: {
         Row: {
@@ -134,6 +185,20 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["replies"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "replies_answer_id_fkey";
+            columns: ["answer_id"];
+            referencedRelation: "answers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "replies_member_id_fkey";
+            columns: ["member_id"];
+            referencedRelation: "members";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       ratings: {
         Row: {
@@ -149,6 +214,20 @@ export interface Database {
           stars: number;
         };
         Update: Partial<Database["public"]["Tables"]["ratings"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "ratings_session_id_fkey";
+            columns: ["session_id"];
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ratings_member_id_fkey";
+            columns: ["member_id"];
+            referencedRelation: "members";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       votes: {
         Row: {
@@ -164,6 +243,20 @@ export interface Database {
           choice: string;
         };
         Update: Partial<Database["public"]["Tables"]["votes"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "votes_topic_id_fkey";
+            columns: ["topic_id"];
+            referencedRelation: "topics";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "votes_member_id_fkey";
+            columns: ["member_id"];
+            referencedRelation: "members";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       login_attempts: {
         Row: {
@@ -179,7 +272,55 @@ export interface Database {
           success: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["login_attempts"]["Insert"]>;
+        Relationships: [];
+      };
+      topic_templates: {
+        Row: {
+          id: string;
+          name: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["topic_templates"]["Insert"]>;
+        Relationships: [];
+      };
+      topic_template_items: {
+        Row: {
+          id: string;
+          template_id: string;
+          order_no: number;
+          kind: TopicKind;
+          title: string;
+          body: string | null;
+          assigned_role: TemplateAssignedRole | null;
+          has_rating: boolean;
+        };
+        Insert: {
+          id?: string;
+          template_id: string;
+          order_no: number;
+          kind: TopicKind;
+          title: string;
+          body?: string | null;
+          assigned_role?: TemplateAssignedRole | null;
+          has_rating?: boolean;
+        };
+        Update: Partial<Database["public"]["Tables"]["topic_template_items"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "topic_template_items_template_id_fkey";
+            columns: ["template_id"];
+            referencedRelation: "topic_templates";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
   };
 }
