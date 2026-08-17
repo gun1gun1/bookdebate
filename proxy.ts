@@ -26,7 +26,12 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
+  // /_next/image의 히어로 이미지 최적화는 서버가 자기 자신에게
+  // /brand/*를 다시 요청하는 내부 fetch를 거친다 — 이 경로도 미들웨어에
+  // 잡히면 그 fetch가 /login으로 리다이렉트되어 sharp가 HTML을 받고
+  // "not a valid image" 에러를 낸다. public/ 정적 자산은 보호 대상이
+  // 아니므로 icon.svg와 함께 제외한다.
   matcher: [
-    "/((?!login|api/auth|api/keep-alive|_next/static|_next/image|favicon.ico).*)",
+    "/((?!login|api/auth|api/keep-alive|_next/static|_next/image|favicon.ico|icon.svg|brand/).*)",
   ],
 };

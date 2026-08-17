@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="22" fill="#F2CB66"/>
+  <text
+    x="50"
+    y="54"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    font-family="'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, sans-serif"
+    font-size="60"
+    font-weight="800"
+    fill="#ffffff"
+  >내</text>
+</svg>

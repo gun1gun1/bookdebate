@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { AnswerContent } from "@/components/AnswerContent";
 import { StarRating } from "@/components/StarRating";
 import { DeleteButton } from "@/components/DeleteButton";
+import { useEditorLock } from "./EditorLockContext";
 import {
   upsertAnswerAction,
   deleteAnswerAction,
@@ -23,7 +24,6 @@ export function TopicPanel({
   isAdmin,
   showRating,
   myRating,
-  onEditorOpenChange,
 }: {
   sessionId: string;
   sessionStatus: SessionStatus;
@@ -33,21 +33,12 @@ export function TopicPanel({
   isAdmin: boolean;
   showRating: boolean;
   myRating: number | null;
-  onEditorOpenChange: (open: boolean) => void;
 }) {
   const canWrite = sessionStatus === "open";
   const myAnswer = topic.answers.find((a) => a.member_id === currentMemberId) ?? null;
 
-  const [editingMine, setEditingMine] = useState(false);
-  const [openReplyFor, setOpenReplyFor] = useState<Set<string>>(new Set());
-  const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
-
-  useEffect(() => {
-    onEditorOpenChange(editingMine || openReplyFor.size > 0 || editingReplyId !== null);
-  }, [editingMine, openReplyFor, editingReplyId, onEditorOpenChange]);
-
   return (
-    <div>
+    <div id={`topic-${topic.id}`} className="scroll-mt-6">
       <h2 className="text-lg font-semibold">{topic.title}</h2>
       {topic.body && <p className="mt-1 max-w-[68ch] text-sm text-gray-600">{topic.body}</p>}
 
@@ -66,8 +57,6 @@ export function TopicPanel({
             isAdmin={isAdmin}
             canWrite={canWrite}
             myAnswer={myAnswer}
-            editingMine={editingMine}
-            setEditingMine={setEditingMine}
           />
         ) : (
           <ExcerptView
@@ -76,12 +65,6 @@ export function TopicPanel({
             isAdmin={isAdmin}
             canWrite={canWrite}
             myAnswer={myAnswer}
-            editingMine={editingMine}
-            setEditingMine={setEditingMine}
-            openReplyFor={openReplyFor}
-            setOpenReplyFor={setOpenReplyFor}
-            editingReplyId={editingReplyId}
-            setEditingReplyId={setEditingReplyId}
           />
         )}
       </div>
@@ -101,8 +84,6 @@ function FreeView({
   isAdmin,
   canWrite,
   myAnswer,
-  editingMine,
-  setEditingMine,
 }: {
   topic: Topic;
   members: Member[];
@@ -110,9 +91,11 @@ function FreeView({
   isAdmin: boolean;
   canWrite: boolean;
   myAnswer: Answer | null;
-  editingMine: boolean;
-  setEditingMine: (v: boolean) => void;
 }) {
+  const { openEditorKey, tryOpen, close } = useEditorLock();
+  const editorKey = `answer:${topic.id}`;
+  const isEditing = openEditorKey === editorKey;
+
   const [text, setText] = useState(myAnswer?.body ?? "");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +103,12 @@ function FreeView({
 
   const others = members.filter((m) => m.id !== currentMemberId);
   const orderedMembers = [{ id: currentMemberId, name: "" }, ...others];
+
+  function startEditing() {
+    if (!tryOpen(editorKey)) return;
+    setText(myAnswer?.body ?? "");
+    setError(null);
+  }
 
   function save() {
     setError(null);
@@ -129,7 +118,7 @@ function FreeView({
         setError(result.error);
         return;
       }
-      setEditingMine(false);
+      close(editorKey);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     });
@@ -149,7 +138,7 @@ function FreeView({
           >
             <p className="mb-2 text-xs font-semibold text-gray-500">{memberName}{isMe ? " (나)" : ""}</p>
 
-            {isMe && editingMine ? (
+            {isMe && isEditing ? (
               <div className="flex flex-col gap-2">
                 <textarea
                   value={text}
@@ -171,7 +160,7 @@ function FreeView({
                     type="button"
                     onClick={() => {
                       setText(myAnswer?.body ?? "");
-                      setEditingMine(false);
+                      close(editorKey);
                     }}
                     className="text-sm text-gray-500 hover:underline"
                   >
@@ -183,7 +172,7 @@ function FreeView({
               <button
                 type="button"
                 disabled={!canWrite}
-                onClick={() => canWrite && setEditingMine(true)}
+                onClick={() => canWrite && startEditing()}
                 className="block w-full text-left disabled:cursor-not-allowed"
               >
                 <AnswerContent kind="free" answer={myAnswer} />
@@ -195,7 +184,7 @@ function FreeView({
               <AnswerContent kind="free" answer={answer} />
             )}
 
-            {isMe && !editingMine && (
+            {isMe && !isEditing && (
               <div className="mt-2 flex items-center gap-3">
                 <SavedBadge show={saved} />
                 {canWrite && myAnswer && (
@@ -232,25 +221,18 @@ function ExcerptView({
   isAdmin,
   canWrite,
   myAnswer,
-  editingMine,
-  setEditingMine,
-  openReplyFor,
-  setOpenReplyFor,
-  editingReplyId,
-  setEditingReplyId,
 }: {
   topic: Topic;
   currentMemberId: string;
   isAdmin: boolean;
   canWrite: boolean;
   myAnswer: Answer | null;
-  editingMine: boolean;
-  setEditingMine: (v: boolean) => void;
-  openReplyFor: Set<string>;
-  setOpenReplyFor: (v: Set<string>) => void;
-  editingReplyId: string | null;
-  setEditingReplyId: (v: string | null) => void;
 }) {
+  const { openEditorKey, tryOpen, close } = useEditorLock();
+  const answerEditorKey = `answer:${topic.id}`;
+  const isEditingMine = openEditorKey === answerEditorKey;
+  const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
+
   const answersWithContent = topic.answers.filter((a) => a.excerpt_text?.trim());
   const ordered = [
     ...(myAnswer ? [myAnswer] : []),
@@ -259,29 +241,31 @@ function ExcerptView({
 
   return (
     <div className="flex flex-col gap-8">
-      {!myAnswer && canWrite && !editingMine && (
+      {!myAnswer && canWrite && !isEditingMine && (
         <button
           type="button"
-          onClick={() => setEditingMine(true)}
+          onClick={() => tryOpen(answerEditorKey)}
           className="self-start rounded border border-gray-900 px-3 py-1 text-sm"
         >
           내 발췌 추가하기
         </button>
       )}
 
-      {!myAnswer && editingMine && (
+      {!myAnswer && isEditingMine && (
         <ExcerptEditor
           topicId={topic.id}
           initialText=""
           initialReason=""
-          onDone={() => setEditingMine(false)}
-          onCancel={() => setEditingMine(false)}
+          onDone={() => close(answerEditorKey)}
+          onCancel={() => close(answerEditorKey)}
         />
       )}
 
       {ordered.map((answer) => {
         const isMe = answer.member_id === currentMemberId;
-        const isEditingThis = isMe && editingMine;
+        const isEditingThis = isMe && isEditingMine;
+        const replyEditorKey = `reply:${answer.id}`;
+        const isReplyThreadOpen = openEditorKey === replyEditorKey;
 
         return (
           <div key={answer.id} className="border-b border-gray-100 pb-6 last:border-none">
@@ -294,8 +278,8 @@ function ExcerptView({
                 topicId={topic.id}
                 initialText={answer.excerpt_text ?? ""}
                 initialReason={answer.excerpt_reason ?? ""}
-                onDone={() => setEditingMine(false)}
-                onCancel={() => setEditingMine(false)}
+                onDone={() => close(answerEditorKey)}
+                onCancel={() => close(answerEditorKey)}
               />
             ) : (
               <>
@@ -304,7 +288,7 @@ function ExcerptView({
                   <div className="mt-2 flex items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => setEditingMine(true)}
+                      onClick={() => tryOpen(answerEditorKey)}
                       className="text-sm text-gray-700 hover:underline"
                     >
                       수정
@@ -347,21 +331,29 @@ function ExcerptView({
                   reply={reply}
                   isMine={reply.member_id === currentMemberId || isAdmin}
                   canWrite={canWrite}
-                  isEditing={editingReplyId === reply.id}
-                  onEdit={() => setEditingReplyId(reply.id)}
-                  onDone={() => setEditingReplyId(null)}
+                  isEditing={isReplyThreadOpen && editingReplyId === reply.id}
+                  onEdit={() => {
+                    if (!tryOpen(replyEditorKey)) return;
+                    setEditingReplyId(reply.id);
+                  }}
+                  onDone={() => {
+                    close(replyEditorKey);
+                    setEditingReplyId(null);
+                  }}
                 />
               ))}
 
               {canWrite && (
                 <ReplyComposer
                   answerId={answer.id}
-                  isOpen={openReplyFor.has(answer.id)}
+                  isOpen={isReplyThreadOpen && editingReplyId === null}
                   onToggle={(open) => {
-                    const next = new Set(openReplyFor);
-                    if (open) next.add(answer.id);
-                    else next.delete(answer.id);
-                    setOpenReplyFor(next);
+                    if (open) {
+                      if (!tryOpen(replyEditorKey)) return;
+                      setEditingReplyId(null);
+                    } else {
+                      close(replyEditorKey);
+                    }
                   }}
                 />
               )}

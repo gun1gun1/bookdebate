@@ -7,14 +7,11 @@ export const dynamic = "force-dynamic";
 
 export default async function SessionDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ view?: string; topic?: string }>;
 }) {
   const session = await requireSession();
   const { id: sessionId } = await params;
-  const search = await searchParams;
 
   const supabase = getSupabaseServerClient();
 
@@ -24,7 +21,7 @@ export default async function SessionDetailPage({
       .select(
         `
         id, meets_at, deadline_at, status,
-        book:books(title, author),
+        book:books(title, author, cover_url),
         topics(
           id, order_no, kind, title, body, has_rating,
           answers(
@@ -45,17 +42,12 @@ export default async function SessionDetailPage({
 
   const topics = [...sessionRow.topics].sort((a, b) => a.order_no - b.order_no);
 
-  const view =
-    search.view === "member" || search.view === "matrix" ? search.view : "topic";
-  const initialTopicId =
-    search.topic && topics.some((t) => t.id === search.topic)
-      ? search.topic
-      : (topics[0]?.id ?? null);
-
   return (
     <SessionShell
       sessionId={sessionRow.id}
       bookTitle={sessionRow.book?.title ?? ""}
+      bookAuthor={sessionRow.book?.author ?? null}
+      bookCoverUrl={sessionRow.book?.cover_url ?? null}
       meetsAt={sessionRow.meets_at}
       deadlineAt={sessionRow.deadline_at}
       status={sessionRow.status}
@@ -64,8 +56,6 @@ export default async function SessionDetailPage({
       ratings={sessionRow.ratings}
       currentMemberId={session.memberId}
       isAdmin={session.role === "admin"}
-      initialView={view}
-      initialTopicId={initialTopicId}
     />
   );
 }

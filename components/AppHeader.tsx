@@ -16,7 +16,10 @@ export async function AppHeader() {
 
   return (
     <header className="flex items-center justify-between gap-3 border-b border-gray-200 px-6 py-3 text-sm">
-      <nav className="flex gap-4">
+      <nav className="flex items-center gap-4">
+        <Link href="/" className="font-semibold">
+          내담리
+        </Link>
         <Link href="/" className="hover:underline">
           회차 목록
         </Link>

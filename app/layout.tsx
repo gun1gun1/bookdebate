@@ -3,8 +3,8 @@ import { AppHeader } from "@/components/AppHeader";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "독서토론",
-  description: "독서모임 온라인 토론 기록 앱",
+  title: "내담리",
+  description: "수원시 학습구 다정동 내담리",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

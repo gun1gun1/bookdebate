@@ -1,4 +1,6 @@
+import Image from "next/image";
 import Link from "next/link";
+import { BookCover } from "@/components/BookCover";
 import { requireSession } from "@/lib/auth";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { isAnswerComplete } from "@/lib/topics";
@@ -42,6 +44,17 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto max-w-3xl p-6">
+      <div className="mb-8 flex justify-center">
+        <Image
+          src="/brand/naedamri-hero.png"
+          alt="내담리"
+          width={682}
+          height={510}
+          priority
+          className="h-auto w-full max-w-[560px]"
+        />
+      </div>
+
       <div className="flex flex-col gap-4">
         {openSessions.map((s) => {
           const topics = s.topics ?? [];
@@ -63,16 +76,19 @@ export default async function HomePage() {
             <Link
               key={s.id}
               href={`/s/${s.id}`}
-              className="rounded-lg border border-gray-200 p-5 hover:border-gray-400"
+              className="flex gap-4 rounded-lg border border-gray-200 p-5 hover:border-gray-400"
             >
-              <p className="text-xs text-gray-500">
-                {d > 0 ? `모임까지 D-${d}` : d === 0 ? "오늘 모임" : "모임 지남"}
-              </p>
-              <h2 className="mt-1 text-lg font-semibold">『{s.book?.title}』</h2>
-              <p className="mt-2 text-sm text-gray-600">
-                작성: {completedMemberIds.size}/{totalMembers}명 완료 · 내 답변 {myDone}/{topics.length}{" "}
-                작성
-              </p>
+              <BookCover coverUrl={s.book?.cover_url ?? null} title={s.book?.title ?? ""} size={56} />
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500">
+                  {d > 0 ? `모임까지 D-${d}` : d === 0 ? "오늘 모임" : "모임 지남"}
+                </p>
+                <h2 className="mt-1 text-lg font-semibold">『{s.book?.title}』</h2>
+                <p className="mt-2 text-sm text-gray-600">
+                  작성: {completedMemberIds.size}/{totalMembers}명 완료 · 내 답변 {myDone}/{topics.length}{" "}
+                  작성
+                </p>
+              </div>
             </Link>
           );
         })}
