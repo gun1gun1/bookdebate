@@ -2,6 +2,11 @@
 
 사적 월간 독서모임을 위한 온라인 토론 기록 앱. 배경과 설계 결정은 `docs/` 아래 문서와 `독서토론앱.md`를 참고한다.
 
+- **앱 사용법(참여자/관리자)**: [`docs/USAGE.md`](docs/USAGE.md)
+- **이 프로젝트가 만들어진 과정(바이브 코딩 정리)**: [`docs/VIBE_CODING.md`](docs/VIBE_CODING.md)
+
+이 문서(README)는 개발·배포용이다.
+
 ## 로컬 실행
 
 ```bash
