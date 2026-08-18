@@ -92,8 +92,8 @@ export async function confirmImportAction(
           topic_id: topicRow.id,
           member_id: memberId,
           body: answer.body,
-          excerpt_text: answer.excerptText,
-          excerpt_reason: answer.excerptReason,
+          quote_text: answer.excerptText,
+          quote_reason: answer.excerptReason,
           submitted_at: new Date().toISOString(),
         })
         .select("id")

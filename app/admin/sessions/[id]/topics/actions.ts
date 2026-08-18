@@ -6,6 +6,14 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { TopicKind } from "@/lib/supabase/types";
 
 function parseTopicForm(formData: FormData) {
+  const rawChoiceOptions = String(formData.get("choice_options") ?? "").trim();
+  const choiceOptions = rawChoiceOptions
+    ? rawChoiceOptions
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : null;
+
   return {
     orderNo: Number(formData.get("order_no") ?? 0),
     kind: String(formData.get("kind") ?? "free") as TopicKind,
@@ -13,6 +21,7 @@ function parseTopicForm(formData: FormData) {
     body: String(formData.get("body") ?? "").trim() || null,
     assignedMemberId: String(formData.get("assigned_member_id") ?? "") || null,
     hasRating: formData.get("has_rating") === "on",
+    choiceOptions,
   };
 }
 
@@ -31,6 +40,7 @@ export async function createTopicAction(sessionId: string, formData: FormData) {
     body: input.body,
     assigned_member_id: input.assignedMemberId,
     has_rating: input.hasRating,
+    ...(input.choiceOptions ? { choice_options: input.choiceOptions } : {}),
   });
 
   revalidatePath(`/admin/sessions/${sessionId}/topics`);
@@ -56,6 +66,7 @@ export async function updateTopicAction(
       body: input.body,
       assigned_member_id: input.assignedMemberId,
       has_rating: input.hasRating,
+      ...(input.choiceOptions ? { choice_options: input.choiceOptions } : {}),
     })
     .eq("id", topicId);
 

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateTopicAction, deleteTopicAction } from "./actions";
 import { DeleteButton } from "@/components/DeleteButton";
+import { KIND_HINTS } from "./kindHints";
 import type { TopicKind } from "@/lib/supabase/types";
 
 type Option = { id: string; label: string };
@@ -15,6 +16,7 @@ type Topic = {
   body: string | null;
   assigned_member_id: string | null;
   has_rating: boolean;
+  choice_options: string[];
 };
 
 export function TopicRow({
@@ -27,6 +29,7 @@ export function TopicRow({
   members: Option[];
 }) {
   const [editing, setEditing] = useState(false);
+  const [kind, setKind] = useState<TopicKind>(topic.kind);
   const [isPending, startTransition] = useTransition();
 
   if (editing) {
@@ -42,10 +45,17 @@ export function TopicRow({
           className="flex flex-wrap items-center gap-2"
         >
           <input type="number" name="order_no" defaultValue={topic.order_no} className="w-16 rounded border border-gray-300 px-2 py-1" />
-          <select name="kind" defaultValue={topic.kind} className="rounded border border-gray-300 px-2 py-1">
+          <select
+            name="kind"
+            value={kind}
+            onChange={(e) => setKind(e.target.value as TopicKind)}
+            className="rounded border border-gray-300 px-2 py-1"
+          >
             <option value="free">free</option>
             <option value="excerpt">excerpt</option>
+            <option value="difficult">difficult</option>
             <option value="choice">choice</option>
+            <option value="appendix">appendix</option>
           </select>
           <input name="title" defaultValue={topic.title} required className="min-w-[220px] flex-1 rounded border border-gray-300 px-2 py-1" />
           <input name="body" defaultValue={topic.body ?? ""} placeholder="안내문" className="min-w-[180px] flex-1 rounded border border-gray-300 px-2 py-1" />
@@ -61,12 +71,21 @@ export function TopicRow({
             <input type="checkbox" name="has_rating" defaultChecked={topic.has_rating} />
             별점
           </label>
+          {kind === "choice" && (
+            <input
+              name="choice_options"
+              defaultValue={topic.choice_options?.join(",") || "찬성,반대"}
+              placeholder="선택지(쉼표 구분)"
+              className="min-w-[160px] rounded border border-gray-300 px-2 py-1"
+            />
+          )}
           <button type="submit" disabled={isPending} className="rounded bg-gray-900 px-3 py-1 text-white disabled:opacity-50">
             저장
           </button>
           <button type="button" onClick={() => setEditing(false)} className="text-gray-500 hover:underline">
             취소
           </button>
+          <p className="w-full text-xs text-gray-400">{KIND_HINTS[kind]}</p>
         </form>
       </li>
     );

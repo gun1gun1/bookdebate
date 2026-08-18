@@ -13,7 +13,8 @@ export default async function MePage() {
     .from("answers")
     .select(
       `
-      id, body, excerpt_text, excerpt_reason,
+      id, body, quote_text, quote_reason, title, choice,
+      replies(id, body, member:members(name)),
       topic:topics(id, order_no, title, kind, session:sessions(id, meets_at, book:books(title)))
     `
     )

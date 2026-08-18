@@ -65,7 +65,9 @@ export function NewTemplateForm() {
           >
             <option value="free">free</option>
             <option value="excerpt">excerpt</option>
+            <option value="difficult">difficult</option>
             <option value="choice">choice</option>
+            <option value="appendix">appendix</option>
           </select>
           <input
             value={item.title}

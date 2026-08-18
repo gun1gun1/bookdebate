@@ -23,9 +23,9 @@ export default async function SessionDetailPage({
         id, meets_at, deadline_at, status,
         book:books(title, author, cover_url),
         topics(
-          id, order_no, kind, title, body, has_rating,
+          id, order_no, kind, title, body, has_rating, choice_options,
           answers(
-            id, member_id, body, excerpt_text, excerpt_reason, submitted_at,
+            id, member_id, body, quote_text, quote_reason, title, choice, slot, submitted_at,
             member:members(name),
             replies(id, member_id, body, created_at, member:members(name))
           )

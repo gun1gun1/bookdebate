@@ -3,7 +3,7 @@ import Link from "next/link";
 import { BookCover } from "@/components/BookCover";
 import { requireSession } from "@/lib/auth";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { isAnswerComplete } from "@/lib/topics";
+import { isAnswerComplete, isMandatoryKind } from "@/lib/topics";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ export default async function HomePage() {
     supabase
       .from("sessions")
       .select(
-        "id, meets_at, deadline_at, status, book:books(title, author, cover_url), topics(id, kind, answers(member_id, body, excerpt_text))"
+        "id, meets_at, deadline_at, status, book:books(title, author, cover_url), topics(id, kind, answers(member_id, body, quote_text, choice))"
       )
       .in("status", ["open", "closed"])
       .order("meets_at", { ascending: false }),
@@ -58,16 +58,17 @@ export default async function HomePage() {
       <div className="flex flex-col gap-4">
         {openSessions.map((s) => {
           const topics = s.topics ?? [];
+          const mandatoryTopics = topics.filter((t) => isMandatoryKind(t.kind));
           const completedMemberIds = new Set<string>();
-          if (topics.length > 0) {
+          if (mandatoryTopics.length > 0) {
             for (const memberId of new Set(topics.flatMap((t) => t.answers.map((a) => a.member_id)))) {
-              const allDone = topics.every((t) =>
+              const allDone = mandatoryTopics.every((t) =>
                 isAnswerComplete(t.kind, t.answers.find((a) => a.member_id === memberId) ?? null)
               );
               if (allDone) completedMemberIds.add(memberId);
             }
           }
-          const myDone = topics.filter((t) =>
+          const myDone = mandatoryTopics.filter((t) =>
             isAnswerComplete(t.kind, t.answers.find((a) => a.member_id === session.memberId) ?? null)
           ).length;
           const d = daysUntil(s.meets_at);
@@ -85,7 +86,7 @@ export default async function HomePage() {
                 </p>
                 <h2 className="mt-1 text-lg font-semibold">『{s.book?.title}』</h2>
                 <p className="mt-2 text-sm text-gray-600">
-                  작성: {completedMemberIds.size}/{totalMembers}명 완료 · 내 답변 {myDone}/{topics.length}{" "}
+                  작성: {completedMemberIds.size}/{totalMembers}명 완료 · 내 답변 {myDone}/{mandatoryTopics.length}{" "}
                   작성
                 </p>
               </div>

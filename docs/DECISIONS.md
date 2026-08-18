@@ -270,4 +270,32 @@ Phase 1 착수 전 정해야 했던 데이터/정책 질문 6개에 사용자가
 
 **후속 조치**: `components/ReplyThread.tsx`가 `label` prop을 받고, 호출부(`FreeView`/`ExcerptView`/`DifficultView`/`ChoiceView`/`AppendixView`)가 유형에 맞는 문구를 넘긴다. `DifficultView`의 `quote_reason` 입력 필드 라벨도 "저는 이리 생각했는데…"로 맞춘다. 이관 파서(`lib/admin/importParser.ts`)가 옛 문서를 인식하는 정규식이 라이브 UI 레이블과 동일한 문구를 쓰므로, 파서 정규식과 화면 문구를 서로 다르게 관리할 필요가 없어졌다. 자세한 내용은 `docs/REFACTOR_PLAN.md` 4.3.1절 참고.
 
+**[R1-c1 정정, 2026-08-17]**: 위 결정과 달리, R1-c1 구현 지시에서 댓글 영역 레이블이 다시 **"같이 생각해 보니"**로 바뀌었다 — 실제 코드(`app/s/[id]/DifficultView.tsx`, `components/AnswerContent.tsx`)는 이 표현을 쓴다. 이유 입력 라벨("저는 이리 생각했는데…")은 원문 그대로 유지됐다 — 바뀐 것은 댓글 영역 레이블뿐이다. 이 정정으로 위 "후속 조치" 문단의 "파서 정규식과 화면 문구가 동일한 문구를 쓴다"는 전제가 더는 성립하지 않는다 — **R1-c2에서 이관 파서를 구현할 때 주의**: 파서가 인식해야 할 대상은 이미 쓰인 과거 구글 문서의 고정 문구 "같이 생각하니…"이고(문서 내용은 바뀌지 않으므로 이 표기 그대로 정규식을 짜야 한다), 반대로 라이브 UI가 새로 작성되는 댓글에 보여주는 레이블은 "같이 생각해 보니"다 — 이 둘은 "과거 문서를 읽는 정규식"과 "지금 화면에 보이는 문구"로 서로 다른 역할이라 같은 문자열일 필요가 없다는 점을 R1-c2 착수 시 다시 확인할 것.
+
+### R1: `choice` 정식 kind 승격 + `slot` 설계 (2026-08-17)
+
+**결정**: `choice`를 "스키마만 두고 화면은 v2로 미룬다"는 v1 전제를 뒤집고, R1에서 `ChoiceView`까지 갖춘 정식 5번째 kind로 구현한다. 전용 집계 테이블이었던 `votes`는 drop하고 입장(`answers.choice`)과 근거(`answers.body`)를 한 행에 합친다. `answers`의 "논제당 참여자당 답변 1개" 제약은 `UNIQUE(topic_id, member_id)`에서 `slot` 컬럼을 더한 `UNIQUE(topic_id, member_id, slot)`으로 바꾸고, `appendix`(1인 다건 허용)만 `slot`을 늘려가며 쓴다.
+
+**이유**: 사용자가 과거 실제 구글 문서를 확인해 준 결과 대부분의 회차에 "4. 찬반 논제(선택과제)"가 실제로 있었다 — "MVP는 화면만 줄이고 스키마는 v2까지 미리 반영"이라던 기존 결정(위 절 참고)의 전제 자체가 착오였음이 드러났다. `votes`를 유지한 채 `choice`를 구현하면 "입장만 있음"/"근거만 있음" 상태를 `votes`와 `answers` 두 테이블에서 따로 다뤄야 해서, 한 행으로 합치는 편이 더 단순하다(적용 시점 `votes` 0행 확인 — 무손실 drop). `slot` 설계를 택한 이유는 `UNIQUE(topic_id, member_id)`를 완전히 제거하는 대안(v1에서 검토) 대비 안전성이 높기 때문 — `free`/`excerpt`/`difficult`/`choice`는 항상 `slot=0`으로 고정해 DB가 계속 "1인 1답변"을 강제하게 두고, `appendix`만 예외로 허용한다. 이 저장소는 Claude Code 외에도 Codex/Gemini CLI로 함께 유지보수되므로, Server Action의 검사가 리팩터링 중 실수로 빠지더라도 DB 제약이 최후 방어선으로 남아 있는 편을 택했다.
+
+**대안과 미채택 이유**:
+- `UNIQUE(topic_id, member_id)` 완전 제거 — appendix 하나 때문에 나머지 4개 kind가 갖던 DB 레벨 안전망을 전부 잃는다. `slot` 컬럼을 더해 3컬럼 유니크로 바꾸는 쪽이 기존 행(전부 `slot=0`으로 채워져도 제약을 위반할 수 없음 — 안전한 전환)과 안전성 양쪽을 다 satisfy했다.
+- `votes` 유지 + `choice` 별도 UI — 입장과 근거가 항상 같이 쓰이고 같이 보이는데 테이블을 나누면 조인·정합성 관리가 늘어난다.
+
+**후속 조치**: `supabase/migrations/0003_r1a_schema.sql`, `docs/SCHEMA.md`, `docs/MIGRATION_R1.md`, `docs/SCHEMA_R1_DRAFT.md`에 반영. `app/s/[id]/actions.ts`의 `upsertAnswerAction`/`upsertChoiceAction`이 `onConflict: "topic_id,member_id,slot"`을 공유하고, `upsertAppendixAction`만 `slot = max(slot)+1` 계산 + `answerId`+`member_id` 이중 조건 소유권 확인으로 별도 구현됐다.
+
+### R1: 운영 원칙 — 다음 회차를 열기 전까지 이전 회차를 닫지 않는다 (2026-08-17)
+
+**결정**: `difficult` 논제의 "같이 생각해 보니" 댓글은 `session.status==='open'` AND 모임 당일(KST) 이후에만 쓸 수 있다(`docs/SCHEMA.md` "difficult 댓글 게이팅" 절). 이 두 조건에 예외를 두지 않는 대신, 회차를 성급히 `closed`로 돌리지 않는 것을 **관리자 운영 규율**로 못박는다 — "다음 회차를 열기 전까지 이전 회차를 닫지 않는다."
+
+**이유**: `session.status==='open'`이 모든 쓰기 권한의 단일 기준이라는 기존 원칙(위 "Phase 0 후속 결정" 절)을 difficult 댓글에도 예외 없이 유지하기로 했다. 그런데 difficult 댓글은 모임 당일부터 열리므로, 회차를 모임 직후 곧바로 닫아버리면 "같이 생각해 보니" 댓글을 달 기회 자체가 막힌다. 코드에 새 예외 규칙을 추가하는 대신, 운영 습관(회차를 다음 회차 시작 전까지는 열어 둔다)으로 이 문제를 흡수하는 편이 SECURITY.md의 "단일 규칙" 원칙을 지키면서도 실제 사용에 지장이 없다고 판단했다 — 이 앱은 월 1회 사용이라 "닫아야 할 급한 이유"가 애초에 거의 없다.
+
+**후속 조치**: R1-c2에서 회차 상태를 `open → closed`로 바꾸는 관리자 액션에 "아직 댓글이 안 달린 힘든 구절 N개 · 닫으면 더 이상 댓글을 달 수 없습니다" 확인 창을 추가할 예정(REFACTOR_PLAN.md 4.10절) — 강제 차단이 아니라 관리자가 그래도 진행할지 한 번 더 확인하는 안전장치. 이번 R1-d 점검 시점에는 아직 미구현.
+
+### R1: "내담리" 이름의 출처 (2026-08-17)
+
+**결정**: 서비스명을 "내담리"로 브랜딩한다(헤더 로고, 히어로 이미지, `app/layout.tsx`의 `metadata.title`, `app/icon.svg`).
+
+**이유**: 새로 지은 이름이 아니다 — 참여자들이 매달 구글 문서 제목을 "내담리_독서논제_{책제목}" 형식으로 이미 써 왔다는 사실을 사용자가 확인해 줬다. 브랜딩 작업은 "새 이름을 도입"한 것이 아니라 "이미 쓰던 이름을 정식화"한 것에 가깝다 — RETENTION.md가 강조하는 "이 모임의 자리라는 정체성"을 화면에도 그대로 옮긴 것.
+
 *(이후 Phase 종료 시, 최초 계획에서 실제로 바뀐 결정을 아래에 시간순으로 추가한다.)*

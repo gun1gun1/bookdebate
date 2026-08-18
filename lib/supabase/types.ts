@@ -1,4 +1,4 @@
-export type TopicKind = "free" | "excerpt" | "choice";
+export type TopicKind = "free" | "excerpt" | "difficult" | "choice" | "appendix";
 export type MemberRole = "member" | "admin";
 export type SessionStatus = "draft" | "open" | "closed";
 export type TemplateAssignedRole = "selector" | "host";
@@ -103,6 +103,7 @@ export interface Database {
           body: string | null;
           assigned_member_id: string | null;
           has_rating: boolean;
+          choice_options: string[];
           created_at: string;
         };
         Insert: {
@@ -114,6 +115,7 @@ export interface Database {
           body?: string | null;
           assigned_member_id?: string | null;
           has_rating?: boolean;
+          choice_options?: string[];
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["topics"]["Insert"]>;
@@ -138,8 +140,11 @@ export interface Database {
           topic_id: string;
           member_id: string;
           body: string | null;
-          excerpt_text: string | null;
-          excerpt_reason: string | null;
+          quote_text: string | null;
+          quote_reason: string | null;
+          title: string | null;
+          choice: string | null;
+          slot: number;
           submitted_at: string | null;
           updated_at: string | null;
         };
@@ -148,8 +153,11 @@ export interface Database {
           topic_id: string;
           member_id: string;
           body?: string | null;
-          excerpt_text?: string | null;
-          excerpt_reason?: string | null;
+          quote_text?: string | null;
+          quote_reason?: string | null;
+          title?: string | null;
+          choice?: string | null;
+          slot?: number;
           submitted_at?: string | null;
           updated_at?: string | null;
         };
@@ -223,35 +231,6 @@ export interface Database {
           },
           {
             foreignKeyName: "ratings_member_id_fkey";
-            columns: ["member_id"];
-            referencedRelation: "members";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      votes: {
-        Row: {
-          id: string;
-          topic_id: string;
-          member_id: string;
-          choice: string;
-        };
-        Insert: {
-          id?: string;
-          topic_id: string;
-          member_id: string;
-          choice: string;
-        };
-        Update: Partial<Database["public"]["Tables"]["votes"]["Insert"]>;
-        Relationships: [
-          {
-            foreignKeyName: "votes_topic_id_fkey";
-            columns: ["topic_id"];
-            referencedRelation: "topics";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "votes_member_id_fkey";
             columns: ["member_id"];
             referencedRelation: "members";
             referencedColumns: ["id"];

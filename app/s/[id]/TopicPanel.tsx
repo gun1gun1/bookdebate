@@ -4,20 +4,19 @@ import { useState, useTransition } from "react";
 import { AnswerContent } from "@/components/AnswerContent";
 import { StarRating } from "@/components/StarRating";
 import { DeleteButton } from "@/components/DeleteButton";
+import { ReplyThread } from "@/components/ReplyThread";
 import { useEditorLock } from "./EditorLockContext";
-import {
-  upsertAnswerAction,
-  deleteAnswerAction,
-  upsertReplyAction,
-  deleteReplyAction,
-  upsertRatingAction,
-} from "./actions";
+import { upsertAnswerAction, deleteAnswerAction, upsertRatingAction } from "./actions";
+import { DifficultView } from "./DifficultView";
+import { ChoiceView } from "./ChoiceView";
+import { AppendixView } from "./AppendixView";
 import type { Answer, Member, Topic } from "./types";
 import type { SessionStatus } from "@/lib/supabase/types";
 
 export function TopicPanel({
   sessionId,
   sessionStatus,
+  meetsAt,
   topic,
   members,
   currentMemberId,
@@ -27,6 +26,7 @@ export function TopicPanel({
 }: {
   sessionId: string;
   sessionStatus: SessionStatus;
+  meetsAt: string;
   topic: Topic;
   members: Member[];
   currentMemberId: string;
@@ -58,13 +58,36 @@ export function TopicPanel({
             canWrite={canWrite}
             myAnswer={myAnswer}
           />
-        ) : (
+        ) : topic.kind === "excerpt" ? (
           <ExcerptView
             topic={topic}
             currentMemberId={currentMemberId}
             isAdmin={isAdmin}
             canWrite={canWrite}
             myAnswer={myAnswer}
+          />
+        ) : topic.kind === "difficult" ? (
+          <DifficultView
+            topic={topic}
+            currentMemberId={currentMemberId}
+            isAdmin={isAdmin}
+            canWrite={canWrite}
+            myAnswer={myAnswer}
+            meetsAt={meetsAt}
+          />
+        ) : topic.kind === "choice" ? (
+          <ChoiceView
+            topic={topic}
+            currentMemberId={currentMemberId}
+            isAdmin={isAdmin}
+            canWrite={canWrite}
+          />
+        ) : (
+          <AppendixView
+            topic={topic}
+            currentMemberId={currentMemberId}
+            isAdmin={isAdmin}
+            canWrite={canWrite}
           />
         )}
       </div>
@@ -208,6 +231,17 @@ function FreeView({
                 />
               </div>
             )}
+
+            {answer && (
+              <ReplyThread
+                answerId={answer.id}
+                replies={answer.replies}
+                canWrite={canWrite}
+                currentMemberId={currentMemberId}
+                isAdmin={isAdmin}
+                label="의견 남기기"
+              />
+            )}
           </div>
         );
       })}
@@ -231,9 +265,8 @@ function ExcerptView({
   const { openEditorKey, tryOpen, close } = useEditorLock();
   const answerEditorKey = `answer:${topic.id}`;
   const isEditingMine = openEditorKey === answerEditorKey;
-  const [editingReplyId, setEditingReplyId] = useState<string | null>(null);
 
-  const answersWithContent = topic.answers.filter((a) => a.excerpt_text?.trim());
+  const answersWithContent = topic.answers.filter((a) => a.quote_text?.trim());
   const ordered = [
     ...(myAnswer ? [myAnswer] : []),
     ...answersWithContent.filter((a) => a.id !== myAnswer?.id),
@@ -264,8 +297,6 @@ function ExcerptView({
       {ordered.map((answer) => {
         const isMe = answer.member_id === currentMemberId;
         const isEditingThis = isMe && isEditingMine;
-        const replyEditorKey = `reply:${answer.id}`;
-        const isReplyThreadOpen = openEditorKey === replyEditorKey;
 
         return (
           <div key={answer.id} className="border-b border-gray-100 pb-6 last:border-none">
@@ -276,8 +307,8 @@ function ExcerptView({
             {isEditingThis ? (
               <ExcerptEditor
                 topicId={topic.id}
-                initialText={answer.excerpt_text ?? ""}
-                initialReason={answer.excerpt_reason ?? ""}
+                initialText={answer.quote_text ?? ""}
+                initialReason={answer.quote_reason ?? ""}
                 onDone={() => close(answerEditorKey)}
                 onCancel={() => close(answerEditorKey)}
               />
@@ -324,40 +355,14 @@ function ExcerptView({
               </>
             )}
 
-            <div className="mt-3 ml-4 flex flex-col gap-2 border-l border-gray-100 pl-4">
-              {answer.replies.map((reply) => (
-                <ReplyRow
-                  key={reply.id}
-                  reply={reply}
-                  isMine={reply.member_id === currentMemberId || isAdmin}
-                  canWrite={canWrite}
-                  isEditing={isReplyThreadOpen && editingReplyId === reply.id}
-                  onEdit={() => {
-                    if (!tryOpen(replyEditorKey)) return;
-                    setEditingReplyId(reply.id);
-                  }}
-                  onDone={() => {
-                    close(replyEditorKey);
-                    setEditingReplyId(null);
-                  }}
-                />
-              ))}
-
-              {canWrite && (
-                <ReplyComposer
-                  answerId={answer.id}
-                  isOpen={isReplyThreadOpen && editingReplyId === null}
-                  onToggle={(open) => {
-                    if (open) {
-                      if (!tryOpen(replyEditorKey)) return;
-                      setEditingReplyId(null);
-                    } else {
-                      close(replyEditorKey);
-                    }
-                  }}
-                />
-              )}
-            </div>
+            <ReplyThread
+              answerId={answer.id}
+              replies={answer.replies}
+              canWrite={canWrite}
+              currentMemberId={currentMemberId}
+              isAdmin={isAdmin}
+              label="사유 더하기"
+            />
           </div>
         );
       })}
@@ -408,8 +413,8 @@ function ExcerptEditor({
             startTransition(async () => {
               setError(null);
               const result = await upsertAnswerAction(topicId, {
-                excerptText: text,
-                excerptReason: reason,
+                quoteText: text,
+                quoteReason: reason,
               });
               if (!result.ok) {
                 setError(result.error);
@@ -423,141 +428,6 @@ function ExcerptEditor({
           저장
         </button>
         <button type="button" onClick={onCancel} className="text-sm text-gray-500 hover:underline">
-          취소
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ReplyRow({
-  reply,
-  isMine,
-  canWrite,
-  isEditing,
-  onEdit,
-  onDone,
-}: {
-  reply: { id: string; body: string; member: { name: string } | null };
-  isMine: boolean;
-  canWrite: boolean;
-  isEditing: boolean;
-  onEdit: () => void;
-  onDone: () => void;
-}) {
-  const [text, setText] = useState(reply.body);
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-
-  if (isEditing) {
-    return (
-      <div className="flex flex-col gap-1">
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={2}
-          className="w-full max-w-[60ch] rounded border border-gray-300 p-1.5 text-sm"
-        />
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <div className="flex gap-2">
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={() =>
-              startTransition(async () => {
-                setError(null);
-                const result = await upsertReplyAction(reply.id, reply.id, text);
-                if (!result.ok) {
-                  setError(result.error);
-                  return;
-                }
-                onDone();
-              })
-            }
-            className="text-xs font-semibold text-gray-900 hover:underline"
-          >
-            저장
-          </button>
-          <button type="button" onClick={onDone} className="text-xs text-gray-500 hover:underline">
-            취소
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="text-sm">
-      <span className="font-semibold">{reply.member?.name}: </span>
-      <span className="whitespace-pre-wrap">{reply.body}</span>
-      {isMine && canWrite && (
-        <span className="ml-2 inline-flex gap-2 text-xs">
-          <button type="button" onClick={onEdit} className="text-gray-500 hover:underline">
-            수정
-          </button>
-          <DeleteButton action={async () => deleteReplyAction(reply.id)} />
-        </span>
-      )}
-    </div>
-  );
-}
-
-function ReplyComposer({
-  answerId,
-  isOpen,
-  onToggle,
-}: {
-  answerId: string;
-  isOpen: boolean;
-  onToggle: (open: boolean) => void;
-}) {
-  const [text, setText] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-
-  if (!isOpen) {
-    return (
-      <button
-        type="button"
-        onClick={() => onToggle(true)}
-        className="self-start text-xs text-gray-500 hover:underline"
-      >
-        + 사유 더하기
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-1">
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={2}
-        placeholder="사유를 더해 주세요"
-        className="w-full max-w-[60ch] rounded border border-gray-300 p-1.5 text-sm"
-      />
-      {error && <p className="text-xs text-red-600">{error}</p>}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={() =>
-            startTransition(async () => {
-              setError(null);
-              const result = await upsertReplyAction(answerId, null, text);
-              if (!result.ok) {
-                setError(result.error);
-                return;
-              }
-              setText("");
-              onToggle(false);
-            })
-          }
-          className="text-xs font-semibold text-gray-900 hover:underline"
-        >
-          등록
-        </button>
-        <button type="button" onClick={() => onToggle(false)} className="text-xs text-gray-500 hover:underline">
           취소
         </button>
       </div>

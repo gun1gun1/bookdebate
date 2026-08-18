@@ -1,26 +1,26 @@
 # SCHEMA.md
 
-독서토론 앱의 Postgres(Supabase) 스키마 명세. 실제 마이그레이션은 Phase 1에서 `supabase/migrations/`에 작성한다. 이 문서는 그 마이그레이션이 따라야 할 설계도다.
+독서토론 앱의 Postgres(Supabase) 스키마 명세. 실제 마이그레이션은 `supabase/migrations/`에 있다.
 
-DB 접근 원칙(자세한 내용은 SECURITY.md 참고): 전 테이블 `ENABLE ROW LEVEL SECURITY`, 정책은 만들지 않는다(전면 거부). 모든 읽기/쓰기는 `lib/supabase/server.ts`의 service-role 클라이언트를 통해 Next.js 서버에서만 일어난다.
+**[R1]** `topics.kind`가 5종(`free`/`excerpt`/`difficult`/`choice`/`appendix`)으로 늘었고, `answers` 컬럼 리네임/추가 + `slot` 기반 유니크 전환, `votes` 테이블 제거가 있었다 — `supabase/migrations/0003_r1a_schema.sql`(설계 근거는 `docs/MIGRATION_R1.md`). **이 문서는 그 마이그레이션이 적용된 이후의 스키마를 기술한다** — 작성 시점 기준 프로덕션에는 아직 미적용(적용 계획은 `docs/MIGRATION_R1.md` 4절 "배포 순서" 참고). 결정 배경(왜 `choice`를 정식 kind로 승격했는지, 왜 `slot` 설계를 택했는지 등)은 `docs/DECISIONS.md` "R1" 절 참고 — 이 문서는 "무엇"만 다룬다.
+
+DB 접근 원칙(자세한 내용은 SECURITY.md 참고): 전 테이블 `ENABLE ROW LEVEL SECURITY`, 정책은 만들지 않는다(전면 거부). 모든 읽기/쓰기는 `lib/supabase/server.ts`의 service-role 클라이언트를 통해 Next.js 서버에서만 일어난다. **[R1에서도 변경 없음]** — `0003` 마이그레이션은 컬럼 추가/리네임과 `votes` drop만 하며 RLS 관련 statement는 포함하지 않는다.
 
 ## 관계도 (텍스트)
 
 ```
 books (1) ──< sessions (1) ──< topics (1) ──< answers (1) ──< replies
-                  │                                │
-                  │                                └──< (kind='choice'인 경우) votes
                   └──< ratings
-members (1) ──< answers / replies / ratings / votes  (author)
+members (1) ──< answers / replies / ratings  (author)
 members (1) ──< sessions.selector_member_id / host_member_id (역할)
 ```
 
 - `sessions`는 `books`를 정확히 1권 참조한다(책 1권 = 회차 1개, 재독은 새 `books` 행 + 새 `sessions` 행으로 처리).
-- `topics`는 `sessions`에 속하고 `order_no`로 정렬된다.
-- `answers`는 `(topic_id, member_id)`가 사실상 유니크하다 — 논제당 참여자당 답변은 하나.
-- `replies`는 `topic`이 아니라 `answer`에 달린다. 이것이 `excerpt` 유형의 핵심 구조다.
-- `ratings`는 UI상 논제 1번 화면에 붙어 있지만 실제로는 `session_id` 단위 — 논제가 아니라 회차 평가다.
-- `votes`는 v2(`choice` 유형) 전용. MVP에서는 테이블만 존재하고 쓰기 경로가 없다.
+- `topics`는 `sessions`에 속하고 `order_no`로 정렬된다. **[R1]** `kind`가 5종(`free`/`excerpt`/`difficult`/`choice`/`appendix`)으로 늘었다 — 이전에는 3종(`choice`는 스키마만 존재, 전용 UI 없음).
+- **[R1]** `answers`는 이전에 `(topic_id, member_id)`가 유니크했지만(DB 제약), R1부터는 **`slot` 컬럼이 추가되어 `(topic_id, member_id, slot)`이 유니크**하다. `free`/`excerpt`/`difficult`/`choice`는 항상 `slot = 0`(즉 이전과 동일하게 1인 1답변이 DB 레벨에서 계속 강제된다), `appendix`만 한 사람이 여러 `slot`(0, 1, 2, …)을 가질 수 있다.
+- `replies`는 `topic`이 아니라 `answer`에 달린다. **[R1]** 이전에는 `kind = 'excerpt'`인 answer에만 reply를 달 수 있었지만, R1부터는 **모든 kind의 answer에 reply를 달 수 있다.** UI 레이블은 kind마다 다르다(하나로 통일하지 않는다) — `excerpt`는 "사유 더하기"(기존 유지), `difficult`는 "같이 생각해 보니"(모임 당일 KST 0시 이후로 게이트 적용), `free`/`choice`/`appendix`는 "의견 남기기"(신규 유형이라 일반화한 문구). 자세한 근거는 `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고.
+- `ratings`는 논제 1번 화면에 붙어 있지만 실제로는 `session_id` 단위. **[R1에서도 변경 없음]**
+- **[R1]** `votes` 테이블은 **제거**됐다. 입장(`choice`)과 근거(`body`)를 `answers` 한 행에 합쳐서 쓴다 — v1까지는 `choice` 논제 전용 집계 테이블로 존재했으나, 실제로 쓰지 않은 채(0행) `choice`가 정식 kind로 승격되면서 역할이 `answers.choice`로 흡수됐다.
 
 ## 테이블 정의
 
@@ -31,8 +31,8 @@ members (1) ──< sessions.selector_member_id / host_member_id (역할)
 | id | uuid | PK, default gen_random_uuid() | |
 | title | text | not null | |
 | author | text | | |
-| cover_url | text | | |
-| memo | text | | 관리자 메모, 참여자에게 노출 여부는 UI 재량 |
+| cover_url | text | | R1 사이드바 책 표지에 사용. 없으면 UI가 제목 이니셜 플레이스홀더로 대체(스키마 변경 아님). |
+| memo | text | | |
 | created_at | timestamptz | not null default now() | |
 
 ### members
@@ -40,14 +40,12 @@ members (1) ──< sessions.selector_member_id / host_member_id (역할)
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
 | id | uuid | PK | |
-| name | text | not null, unique | 정식 이름 (예: "희진") |
-| aliases | text[] | not null default '{}' | 축약형 (예: '{희}') |
+| name | text | not null, unique | |
+| aliases | text[] | not null default '{}' | |
 | role | text | not null, check in ('member','admin') | |
-| is_active | boolean | not null default true | 삭제 대신 비활성화 |
-| pin_hash | text | nullable | `REQUIRE_MEMBER_PIN=true`일 때만 사용, bcrypt |
+| is_active | boolean | not null default true | |
+| pin_hash | text | nullable | |
 | created_at | timestamptz | not null default now() | |
-
-주의: `aliases`에 다른 멤버의 `name`이나 `aliases`와 겹치는 값이 들어가면 파서/로그인 양쪽에서 모호해질 수 있다. **의도적으로 겹침 검증을 두지 않기로 결정했다**(DECISIONS.md 참고) — 참여자 규모가 작고 관리자가 직접 입력하므로 검증 비용이 실익보다 크다고 판단했다. DB 제약도, 저장 시점 애플리케이션 검증도 없다.
 
 ### sessions
 
@@ -55,15 +53,13 @@ members (1) ──< sessions.selector_member_id / host_member_id (역할)
 |---|---|---|---|
 | id | uuid | PK | |
 | book_id | uuid | FK -> books.id, not null | |
-| meets_at | date | not null | 모임일 |
-| deadline_at | date | | 작성 마감일 |
-| selector_member_id | uuid | FK -> members.id, nullable | 책 선정자, 보통 논제 1번 담당 |
-| host_member_id | uuid | FK -> members.id, nullable | 진행자 |
-| status | text | not null default 'draft', check in ('draft','open','closed') | ★ 쓰기 권한의 단일 기준 |
-| blind_enabled | boolean | not null default false | v2 스위치, MVP는 항상 false |
+| meets_at | date | not null | 모임일. **[R1]** difficult 논제의 "같이 생각해 보니" 댓글(reply)이 이 값을 KST 기준 게이트로 쓴다(아래 절 참고). |
+| deadline_at | date | | |
+| selector_member_id | uuid | FK -> members.id, nullable | |
+| host_member_id | uuid | FK -> members.id, nullable | |
+| status | text | not null default 'draft', check in ('draft','open','closed') | ★ 쓰기 권한의 단일 기준. **[R1]** difficult 논제에 대한 reply("같이 생각해 보니")도 예외 없이 이 규칙을 따른다 — 대신 회차를 `closed`로 바꾸기 직전 관리자 화면이 "댓글 없는 힘든 구절 N개" 경고를 띄운다(R1-c2 예정, REFACTOR_PLAN.md 4.10절). `DECISIONS.md`에 "다음 회차를 열기 전까지 이전 회차를 닫지 않는다"를 운영 원칙으로 기록. |
+| blind_enabled | boolean | not null default false | |
 | created_at | timestamptz | not null default now() | |
-
-정책(DECISIONS.md 참고, 확정됨): **answers/replies의 생성·수정·삭제는 `status === 'open'`일 때만 허용한다.** `draft`(아직 세팅 중)와 `closed`(마감됨) 둘 다 이 하나의 조건으로 자동으로 막힌다 — 상태별로 별도 분기를 두지 않는다. `draft`에서도 논제 조회는 허용하지만 작성 UI는 비활성화한다(SPEC.md).
 
 ### topics
 
@@ -71,15 +67,28 @@ members (1) ──< sessions.selector_member_id / host_member_id (역할)
 |---|---|---|---|
 | id | uuid | PK | |
 | session_id | uuid | FK -> sessions.id, not null | |
-| order_no | integer | not null | 회차 내 정렬 순번, 화면 표기 번호와 별개로 관리 가능 |
-| kind | text | not null, check in ('free','excerpt','choice') | ★ UI/파서 분기의 핵심 |
+| order_no | integer | not null | |
+| kind | text | not null, **[R1] check in ('free','excerpt','choice','difficult','appendix')** | ★ UI/파서 분기의 핵심. 5종 전부 정식 UI를 갖는다. |
 | title | text | not null | |
-| body | text | | 안내문 |
-| assigned_member_id | uuid | FK -> members.id, nullable | 담당자 (예: 책 선정자) |
-| has_rating | boolean | not null default false | 별점 위젯 노출 여부 |
+| body | text | | |
+| assigned_member_id | uuid | FK -> members.id, nullable | |
+| has_rating | boolean | not null default false | |
+| **choice_options** | **text[]** | **[R1 신규] not null default '{찬성,반대}'** | `kind='choice'`인 논제의 선택지 목록. 관리자가 "찬성/반대" 대신 다른 값으로 바꿀 수 있다. 다른 kind에서는 사용하지 않음(기본값이 들어있어도 무해). |
 | created_at | timestamptz | not null default now() | |
 
-제약: `UNIQUE (session_id, order_no)` 권장 — 같은 회차 안에서 순번 중복 방지.
+제약: `UNIQUE (session_id, order_no)`.
+
+**kind별 참여 성격**
+
+| kind | 참여 방식 | 미작성자 UI |
+|---|---|---|
+| `free` | 전원 참여 전제 | 회색 카드로 표시 |
+| `excerpt` | 전원 참여 전제 | 회색 카드로 표시 |
+| `difficult` | 선택 참여 | 카드 자체를 만들지 않음 — 작성자만 나열, 없으면 "내 구절 추가하기" 버튼만 |
+| `choice` | 선택 참여 | 카드 자체를 만들지 않음 — 입장을 밝힌 사람만 집계/진영 열에 나타남 |
+| `appendix` | 선택 참여, 제한 없음(1인 다건 허용) | 카드 자체를 만들지 않음 |
+
+"참여 현황"(`N명 중 M명 작성`) 집계는 `free`/`excerpt` 논제만 분모로 삼는다 — `difficult`/`choice`/`appendix`는 선택 참여이므로 제외한다(`lib/topics.ts`의 `isMandatoryKind()`).
 
 ### answers
 
@@ -88,106 +97,80 @@ members (1) ──< sessions.selector_member_id / host_member_id (역할)
 | id | uuid | PK | |
 | topic_id | uuid | FK -> topics.id, not null | |
 | member_id | uuid | FK -> members.id, not null | |
-| body | text | | free: 소감 / choice: 근거(v2) |
-| excerpt_text | text | | excerpt 전용: 발췌 원문 |
-| excerpt_reason | text | | excerpt 전용: 고른 이유 |
-| submitted_at | timestamptz | | 최초 제출 시각 (null이면 미작성) |
+| body | text | | free: 소감 / choice: 근거(선택 입력) / appendix: 본문 |
+| **quote_text** | text | | **[R1] `excerpt_text`를 리네임.** excerpt: 발췌 원문 / difficult: 힘든 구절. 두 kind가 공유. |
+| **quote_reason** | text | | **[R1] `excerpt_reason`을 리네임.** excerpt: 고른 이유 / difficult: 그 이유(입력 라벨 "저는 이리 생각했는데…"). |
+| **title** | text | **[R1 신규]** | appendix 전용: 게시물 짧은 제목(선택). 다른 kind는 항상 null. |
+| **choice** | text | **[R1 신규]** | choice 전용: 이 사람이 고른 입장, `topics.choice_options`의 값 중 하나(자유 텍스트로 저장, DB 레벨에서 `choice_options` 원소인지 강제하지 않음 — 과설계 방지). 다른 kind는 항상 null. |
+| **slot** | smallint | **[R1 신규] not null default 0** | appendix가 1인 다건을 가질 때 순번(0, 1, 2, …). 다른 kind는 항상 0. |
+| submitted_at | timestamptz | | |
 | updated_at | timestamptz | | |
 
-제약: `UNIQUE (topic_id, member_id)` — 논제당 참여자당 답변 1개를 DB 레벨에서 강제한다.
+**[R1] 제약 변경**: 이전에는 `UNIQUE (topic_id, member_id)`로 "논제당 참여자당 답변 1개"를 DB가 강제했다. R1부터는 `UNIQUE (topic_id, member_id, slot)`(제약명 `answers_topic_member_slot_key`)로 바뀐다:
 
-CHECK 제약(애플리케이션 레벨 검증과 별개로 DB에도 두는 것을 권장): `topics.kind = 'excerpt'`인 answer는 `excerpt_text`가 비어 있으면 "미작성"으로 간주하고, `topics.kind = 'free'`인 answer는 `body`가 비어 있으면 "미작성"으로 간주한다. 이 판정 로직을 코드 여러 곳에 중복하지 말고 한 곳(예: `lib/topics.ts`류 헬퍼)에 모아둘 것 — Phase 1에서 최종 위치 결정.
+- `topic.kind !== 'appendix'`인 경우: `slot`은 항상 `0`으로 고정 — 실질적으로 이전과 동일하게 **DB가 계속 1인 1답변을 강제한다.** `app/s/[id]/actions.ts`의 `upsertAnswerAction`/`upsertChoiceAction`이 `upsert(..., {onConflict: "topic_id,member_id,slot"})`로 이 제약을 그대로 충돌 대상으로 쓴다(존재 여부를 먼저 조회하지 않는다 — DB가 원자적으로 처리).
+- `topic.kind === 'appendix'`인 경우: 새 게시물을 만들 때 `slot = coalesce(max(slot)+1, 0)`(같은 `topic_id, member_id` 안에서 계산)로 insert(`upsertAppendixAction`). 동시 제출 경합으로 unique 위반이 나면 slot을 재계산해 1회 재시도한다. 기존 글 수정은 `slot` 계산 없이 `answerId`+`member_id` 이중 조건으로 소유권을 재확인한 뒤 update한다(SECURITY.md 참고).
+
+CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권장): `kind='excerpt'` 또는 `kind='difficult'`인 answer는 `quote_text`가 비면 "미작성", `kind='free'`인 answer는 `body`가 비면 "미작성", **[R1]** `kind='choice'`인 answer는 `choice`가 `null`이면 "미작성"(근거 `body`는 무관 — 입장만 밝혀도 완료로 본다)으로 간주. `kind='appendix'`는 "미작성" 개념이 없다(있으면 목록에, 없으면 없음). 이 판정은 `lib/topics.ts`의 `isAnswerComplete()` 한 곳에 모은다.
 
 ### replies
 
 | 컬럼 | 타입 | 제약 | 비고 |
 |---|---|---|---|
 | id | uuid | PK | |
-| answer_id | uuid | FK -> answers.id, not null, **ON DELETE CASCADE** | ★ topic이 아니라 answer에 달림 |
+| answer_id | uuid | FK -> answers.id, not null, **ON DELETE CASCADE** | |
 | member_id | uuid | FK -> members.id, not null | |
-| body | text | not null | "사유 더하기" 본문 |
+| body | text | not null | **[R1]** kind마다 UI 레이블이 다르다(컬럼/의미는 동일) — `excerpt` "사유 더하기"(유지), `difficult` "같이 생각해 보니", `free`/`choice`/`appendix` "의견 남기기". `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고. |
 | created_at | timestamptz | not null default now() | |
 
-정책(DECISIONS.md "Phase 0 후속 결정" 참고, 확정됨):
-- `answer_id`에 `ON DELETE CASCADE`를 건다 — 참여자가 본인 answer를 삭제하면 하위 replies도 함께 삭제되도록 허용했기 때문. 삭제 UI는 삭제 전 하위 reply 개수를 경고로 보여준다(SPEC.md).
-- 본인 answer에 본인이 reply를 다는 것은 허용한다(제약 없음).
-- `topics.kind != 'excerpt'`인 topic의 answer에는 reply를 달 수 없다 — 단, DB 트리거가 아니라 **Server Action에서 검증**한다(SECURITY.md 체크리스트 참고). DB 레벨에는 이 제약을 강제하는 CHECK/트리거를 두지 않는다.
+정책: 본인 answer 삭제 시 하위 replies도 CASCADE 삭제. 본인 answer에 본인이 reply 허용. **[R1]** `kind != 'excerpt'`면 reply 금지하던 제한이 **삭제**됐다 — 이제 5종 전부의 answer에 reply를 달 수 있다. 이 검사는 원래도 Server Action(`upsertReplyAction`)에서 했으므로(트리거 없음) 조건 분기를 바꾸는 것만으로 반영된다 — 스키마 변경 없음.
 
-### ratings
+### ratings / login_attempts / topic_templates
 
-| 컬럼 | 타입 | 제약 | 비고 |
-|---|---|---|---|
-| id | uuid | PK | |
-| session_id | uuid | FK -> sessions.id, not null | |
-| member_id | uuid | FK -> members.id, not null | |
-| stars | integer | not null, check between 1 and 5 | |
+**[R1에서 변경 없음]** — 원본과 동일.
 
-제약: `UNIQUE (session_id, member_id)`.
+### votes — **[R1: 테이블 제거]**
 
-### votes (v2, 스키마만)
+이전에는 `choice` 논제 전용 집계 테이블이었다(`topic_id`, `member_id`, `choice`, `UNIQUE(topic_id, member_id)`). R1에서 `choice`가 정식 kind로 구현되면서, 입장과 근거를 한 행(`answers.choice` + `answers.body`)에 합치는 편이 "입장만 있음"/"근거만 있음" 상태를 양쪽 테이블에서 따로 다루지 않아도 되므로 이 테이블은 **drop**한다. 마이그레이션 작성 시점 기준 라이브 DB에서 0행으로 직접 확인했다 — 무손실 제거.
 
-| 컬럼 | 타입 | 제약 | 비고 |
-|---|---|---|---|
-| id | uuid | PK | |
-| topic_id | uuid | FK -> topics.id, not null | `kind = 'choice'`인 topic만 유효 |
-| member_id | uuid | FK -> members.id, not null | |
-| choice | text | not null | 진영 값, v2에서 구체화 |
-
-제약: `UNIQUE (topic_id, member_id)`.
-
-### login_attempts
-
-| 컬럼 | 타입 | 제약 | 비고 |
-|---|---|---|---|
-| id | uuid | PK | |
-| ip | text | not null | |
-| attempted_at | timestamptz | not null default now() | |
-| success | boolean | not null | |
-
-인덱스: `(ip, attempted_at)` — 10분 윈도우 조회가 빈번하므로 필요.
-
-### topic_templates / topic_template_items (Phase 3)
-
-회차 템플릿. 독서토론앱.md C절 원안에는 없던 테이블이다 — 템플릿 기능은 Phase 0 후속 결정으로 추가됐지만 스키마가 빠져 있어 Phase 3에서 새로 설계했다(docs/DECISIONS.md 참고).
-
-| 컬럼(topic_templates) | 타입 | 제약 | 비고 |
-|---|---|---|---|
-| id | uuid | PK | |
-| name | text | not null | |
-| created_at | timestamptz | not null default now() | |
+### topic_template_items — kind 컬럼 갱신
 
 | 컬럼(topic_template_items) | 타입 | 제약 | 비고 |
 |---|---|---|---|
-| id | uuid | PK | |
-| template_id | uuid | FK -> topic_templates.id, not null, **ON DELETE CASCADE** | |
-| order_no | integer | not null | |
-| kind | text | not null, check in ('free','excerpt','choice') | |
-| title | text | not null | |
-| body | text | | |
-| assigned_role | text | check in ('selector','host'), nullable | 특정 멤버가 아니라 "그 회차의 선정자/진행자"라는 역할 |
-| has_rating | boolean | not null default false | |
+| kind | text | not null, **[R1] check in ('free','excerpt','choice','difficult','appendix')** | |
 
-제약: `UNIQUE (template_id, order_no)`.
+`choice_options`는 `topic_template_items`에는 추가하지 않는다 — 템플릿에서 `choice` 항목이 회차에 적용되면 `topics.choice_options`는 DB 기본값(`{찬성,반대}`)을 받고, 필요시 관리자가 회차별로 논제 수정 화면에서 바꾼다. 그 외 컬럼 정의는 원본과 동일.
 
-`assigned_role`이 `topics.assigned_member_id`(특정 멤버 uuid)와 다른 점: 템플릿은 여러 회차에 재사용되므로 특정 멤버로 고정하면 매번 틀리게 적용된다. 회차에 템플릿을 적용할 때 `assigned_role`을 그 회차의 `selector_member_id`/`host_member_id`로 해석해 실제 `topics.assigned_member_id`를 채운다(`lib/admin/topics.ts`). "이전 회차 구조 복제" 기능도 같은 파이프라인을 탄다 — 이전 회차의 `topics.assigned_member_id`가 그 회차의 selector/host와 같으면 역할로 되돌리고, 아니면 담당자 없음으로 취급한다.
-
-## `topics.kind`에 따른 answers/replies 사용 방식
+## `topics.kind`에 따른 answers/replies 사용 방식 **[R1로 전면 갱신]**
 
 | kind | answers 사용 | replies 사용 | 특수 컬럼 |
 |---|---|---|---|
-| `free` | 참여자당 1개, `body`만 사용 | 사용 안 함 | `excerpt_text`/`excerpt_reason`은 항상 null |
-| `excerpt` | 참여자당 1개, `excerpt_text` + `excerpt_reason` 사용. `body`는 사용 안 함(또는 미사용 컬럼으로 둠) | 각 answer 아래 여러 개, "사유 더하기" | 2단 중첩의 부모가 topic이 아니라 answer라는 점이 반드시 UI/쿼리에 반영되어야 함 |
-| `choice` (v2) | `body`에 근거 텍스트(예정) | 미정 | `votes` 테이블이 집계 담당, answers는 부가 근거용 |
+| `free` | 참여자당 1개(`slot=0`), `body`만 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`title`/`choice`는 항상 null |
+| `excerpt` | 참여자당 1개(`slot=0`), `quote_text` + `quote_reason` 사용 | 모든 answer에 reply 가능, 레이블 **"사유 더하기"**(기존 유지) | `body`/`title`/`choice`는 사용 안 함 |
+| `difficult` | 참여자당 최대 1개(`slot=0`, 선택 참여). `quote_text`(힘든 구절)+`quote_reason`(그 이유, 입력 라벨 "저는 이리 생각했는데…") | 모든 answer에 reply 가능, 레이블 **"같이 생각해 보니"** — 단 모임일 KST 0시부터 | `body`/`title`/`choice`는 사용 안 함 |
+| `choice` | 참여자당 최대 1개(`slot=0`, 선택 참여). `choice`(입장, 즉시 저장) + `body`(근거, 선택 입력) | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`title`는 사용 안 함 |
+| `appendix` | 참여자당 여러 개 허용(`slot=0,1,2,…`, 선택 참여, 제한 없음), `title`(짧은 제목, 선택) + `body`(본문) 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`choice`는 사용 안 함 |
 
-이 표는 SPEC.md의 화면별 분기, 그리고 Phase 3 붙여넣기 파서의 판정 로직과 반드시 일치해야 한다.
+레이블 정책의 근거는 `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고 — 원문 표현이 있는 kind(`excerpt`/`difficult`)는 그대로 쓰고, 신규 유형(`free`/`choice`/`appendix`)만 일반화한 "의견 남기기"를 쓴다.
 
-## 시드 데이터 계획 (Phase 1에서 구현)
+이 표는 SPEC.md의 화면별 분기와 반드시 일치해야 한다. **이관 파서(`lib/admin/importParser.ts`)는 아직 `free`/`excerpt` 2종만 판정한다 — `difficult`/`choice`/`appendix` 판정 확장은 R1-c2 예정(REFACTOR_PLAN.md 4.8절), 이번 R1-c1(화면·저장 구현)의 범위 밖이다.**
 
-- 참여자 6명: 수열, 윤선, 희진, 선희, 용훈, 혜정. `aliases`에 선희→'선', 희진→'희', 혜정→'혜' 등 축약형 반영.
-- 책 2권: 『독학력』(완료 회차, status='closed'), 『허삼관매혈기』(진행 중 회차, status='open').
-- 『독학력』 회차: `free` 논제 2개 + `excerpt` 논제 1개, 답변과 사유더하기까지 채워서 UI가 "다 찬 상태"로 어떻게 보이는지 확인 가능하게 한다.
-- 『허삼관매혈기』 회차: 논제만 있고 답변은 비움 — "이제 막 열린 회차"의 실제 상태를 재현한다.
+## difficult 댓글("같이 생각해 보니") 게이팅 — Asia/Seoul 기준
+
+- `difficult` kind의 answer에 달리는 reply는 **모임 당일 0시(Asia/Seoul) 이후**에만 작성할 수 있다. Vercel 서버 런타임은 UTC로 동작하므로 반드시 KST로 변환한 뒤 비교한다.
+- 판정 대상: 해당 answer가 속한 `topic.session_id`의 `sessions.meets_at`(date).
+- 판정: "지금 시각을 KST로 변환했을 때의 날짜" ≥ `meets_at`.
+- 구현 위치: `lib/topics.ts`의 `isPostMeetingOpen(meetsAt: string): boolean` — 클라이언트(`ReplyThread`의 `gate` prop, 입력창 대신 안내 문구 표시)와 서버(`upsertReplyAction`의 실제 쓰기 거부) 양쪽이 재사용한다. 클라이언트 표시만으로 막지 않는다(SECURITY.md 원칙) — `gate` prop을 우회해 액션을 직접 호출해도 서버가 독립적으로 거부한다.
+- 다른 4kind(`free`/`excerpt`/`choice`/`appendix`)의 reply는 이 게이트가 없다 — `session.status==='open'`이면 언제든 작성 가능.
+- 이 게이팅과 `sessions.status === 'open'` 규칙은 **AND**로 결합한다 — 두 조건을 모두 만족해야 difficult 댓글을 쓸 수 있다(관리자도 예외 없음). 대신 관리자 화면이 `closed` 전환 직전 "댓글 없는 힘든 구절 N개" 경고를 띄운다(R1-c2 예정, REFACTOR_PLAN.md 4.10절). `DECISIONS.md`에 "다음 회차를 열기 전까지 이전 회차를 닫지 않는다"를 운영 원칙으로 기록.
+- 이관 파서로 과거 회차를 백필할 때는 이 게이트를 적용하지 않을 계획이다(R1-c2 예정, REFACTOR_PLAN.md 4.8절).
+
+## `choice` 논제 상세
+
+- 입장(`answers.choice`)은 `topics.choice_options`(기본 `{찬성,반대}`) 중 하나를 자유 텍스트로 저장한다. DB 레벨 CHECK/FK로 `choice_options` 원소인지 강제하지 않는다(관리자가 선택지를 바꾸면 기존 응답과 어긋나는 edge case를 다뤄야 해서, 참여자 규모에 비해 과설계).
+- 근거(`body`)는 선택 입력 — 입장만 밝히고 근거 없이도 완료로 간주한다(위 `isAnswerComplete` 절 참고).
+- 화면 동작(`ChoiceView`, `app/s/[id]/ChoiceView.tsx`)은 집계·진영별 근거 카드 나열이 핵심이며, "의견 남기기"는 각 근거 카드 아래 붙는다(카드가 없는, 즉 근거 없이 입장만 밝힌 경우는 "의견 남기기" 대상도 없음 — 근거 카드 자체가 안 생기므로).
 
 ## 인덱스 및 성능 메모
 
-이 앱은 월 1회, 참여자 5~8명 규모로 트래픽이 극히 적다. 인덱스는 정확성(유니크 제약)과 `login_attempts` 조회 외에는 과설계하지 않는다. `topics(session_id, order_no)`, `answers(topic_id)`, `replies(answer_id)`에 FK 기본 인덱스면 충분하다.
+**[R1에서 변경 없음]** — 트래픽이 극히 적어(월 1회, 5~8명) 인덱스를 과설계하지 않는다는 원칙 그대로. `slot` 전환은 유니크 제약의 "모양"만 바뀌는 것이라 `answers(topic_id)`의 FK 기본 인덱스로 조회 성능은 충분하다.

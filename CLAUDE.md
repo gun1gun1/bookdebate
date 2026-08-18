@@ -25,13 +25,15 @@ Phase 0(스펙 문서화)까지 완료됐다. 코드는 아직 없다. `docs/` �
 
 ## 핵심 도메인 개념: `topics.kind`가 전체를 좌우한다
 
-원본 구글 문서 구조에는 두 가지 논제 형태가 있고, 이 구분이 데이터 모델과 UI 전체의 축이다:
+원본 구글 문서 구조에는 다섯 가지 논제 형태가 있고, 이 구분이 데이터 모델과 UI 전체의 축이다(R1에서 5종 전부 정식 구현됨 — `docs/REFACTOR_PLAN.md`, `docs/SCHEMA_R1_DRAFT.md` 참고):
 
-- **`free` 논제** — 평평한 구조: 참여자당 답변 1개, 카드로 나란히 표시.
-- **`excerpt` 논제** — 2단 중첩 구조: 각 참여자가 발췌+이유를 올리고(`answers` 행), **다른 참여자들이 그 특정 발췌 아래에 사유를 덧붙인다**(그 `answer`에 달리는 `replies` 행이며, 논제에 직접 달리는 것이 아니다). 이것이 "사유 더하기" 스레드이며, 이 앱을 단순 폼과 가장 크게 구분 짓는 기능이다 — v1에서는 거의 놓칠 뻔했다가 MVP로 격상되었다.
-- **`choice` 논제** — v2 전용(찬반 투표). `votes` 테이블 스키마는 처음부터 존재하지만, MVP에는 전용 UI를 만들지 않는다.
+- **`free` 논제** — 평평한 구조: 참여자당 답변 1개, 카드로 나란히 표시. 전원 참여 전제.
+- **`excerpt` 논제** — 2단 중첩 구조: 각 참여자가 발췌+이유를 올리고(`answers` 행), **다른 참여자들이 그 특정 발췌 아래에 사유를 덧붙인다**(그 `answer`에 달리는 `replies` 행이며, 논제에 직접 달리는 것이 아니다). 이것이 "사유 더하기" 스레드이며, 이 앱을 단순 폼과 가장 크게 구분 짓는 기능이다. 전원 참여 전제.
+- **`difficult` 논제("힘든 구절")** — `excerpt`와 같은 두 컬럼(`quote_text`/`quote_reason`)을 공유하는 선택 참여 논제. 여기 달리는 reply("같이 생각해 보니")는 모임 당일 0시(Asia/Seoul) 이후에만 쓸 수 있다 — `lib/topics.ts`의 `isPostMeetingOpen()`을 클라이언트와 서버(`upsertReplyAction`)가 함께 써서 강제한다(클라이언트 표시만으로 막지 않음).
+- **`choice` 논제** — 찬반형 선택 참여 논제. `answers.choice`(입장, `topics.choice_options` 중 하나)는 버튼 클릭 즉시 저장하고 `answers.body`(근거)는 선택 입력. 더 이상 스키마만 있는 kind가 아니라 전용 화면(`ChoiceView`)까지 정식 구현됐다 — 과거 `votes` 테이블은 이 kind가 정식화되며 R1-a에서 drop됐다.
+- **`appendix` 논제("부록논제")** — 선택 참여, 1인이 여러 개(`answers.slot`으로 구분)를 올릴 수 있는 유일한 kind. `answers.title`(선택)+`body` 사용.
 
-모든 화면, 쿼리, 관리자 편집기는 `topics.kind`에 따라 분기한다. `answers`/`replies`를 다룰 때는 `replies`가 항상 특정 `answer`에 속하며, `topic`에 직접 속하지 않는다는 점을 유념할 것.
+모든 화면, 쿼리, 관리자 편집기는 `topics.kind`에 따라 분기한다. `answers`/`replies`를 다룰 때는 `replies`가 항상 특정 `answer`에 속하며, `topic`에 직접 속하지 않는다는 점을 유념할 것 — R1부터는 5종 kind 전부의 answer에 reply를 달 수 있다(`difficult`만 위 KST 게이트가 추가로 걸림).
 
 ## 데이터 모델
 
@@ -40,13 +42,13 @@ Phase 0(스펙 문서화)까지 완료됐다. 코드는 아직 없다. `docs/` �
 ```
 books -> sessions (회차 1개당 책 1권)
 sessions -> topics (순서 있음, session.selector_member_id가 책을 고르고 보통 논제 1번을 담당)
-topics -> answers (논제당 참여자당 1개)
-answers -> replies (kind='excerpt'일 때만 의미 있음)
+topics -> answers (free/excerpt/difficult/choice는 참여자당 1개, appendix만 slot으로 여러 개 허용)
+answers -> replies (R1부터 5종 kind 전부에서 의미 있음 — difficult만 KST 게이트 추가)
 sessions -> ratings (참여자당 회차당 1개, 화면에는 논제 1에 표시되지만 실질은 회차 단위)
 members.aliases text[] — 참여자들은 이름을 축약해서 씀(예: 선희→'선', 희진→'희'); 이름을 파싱하거나 표시하는 모든 곳에서 별칭 매칭이 필요함
 ```
 
-MVP는 `free`와 `excerpt`를 완전히 구현한다; `choice`는 스키마만 둔다.
+MVP는 `free`와 `excerpt`를 먼저 완전히 구현했고, R1에서 `difficult`/`choice`/`appendix`까지 5종 전부 정식 구현했다.
 
 ## 인증 및 보안 모델 (타협 불가 제약)
 
@@ -56,7 +58,7 @@ MVP는 `free`와 `excerpt`를 완전히 구현한다; `choice`는 스키마만 �
 - **모든 테이블에 RLS를 켜고 정책은 하나도 만들지 않는다**(전면 거부). 즉 Postgres 자체가 모든 접근을 막으며, 데이터에 닿는 유일한 경로는 service-role 키를 쓰는 Next.js 서버뿐이다.
 - **브라우저에서 Supabase를 직접 호출하지 않는다.** 클라이언트는 `lib/supabase/server.ts` 단 하나만 존재하며, 첫 줄에 `import 'server-only'`를 두고 `SUPABASE_SERVICE_ROLE_KEY`를 사용한다. 클라이언트용 Supabase 클라이언트를 새로 만들지 말 것.
 - **인증 로직은 전부 `lib/auth.ts` 한 파일에만 둔다**, 외부에는 `getSession()`, `requireSession()`, `requireAdmin()` 세 함수만 노출한다. 인증 방식이 나중에 바뀌더라도(예: `REQUIRE_MEMBER_PIN`으로 개인 PIN 추가) 이 시그니처는 유지할 것.
-- **모든 Server Action의 첫 줄은 `requireSession()` 또는 `requireAdmin()`을 호출해야 한다.** `middleware.ts`에서도 경로 보호를 하지만(이중 방어), 서버 액션이 미들웨어만 믿어서는 안 된다. 버튼을 클라이언트에서 숨기는 것은 이 프로젝트에서 명시적으로 보안 조치로 인정하지 않는다.
+- **모든 Server Action의 첫 줄은 `requireSession()` 또는 `requireAdmin()`을 호출해야 한다.** `proxy.ts`(Next.js 16부터 `middleware.ts`에서 이름이 바뀐 컨벤션)에서도 경로 보호를 하지만(이중 방어), 서버 액션이 미들웨어만 믿어서는 안 된다. 버튼을 클라이언트에서 숨기는 것은 이 프로젝트에서 명시적으로 보안 조치로 인정하지 않는다.
 - `SUPABASE_SERVICE_ROLE_KEY`에는 절대 `NEXT_PUBLIC_` 접두사를 붙이지 않으며, 클라이언트 번들에 절대 포함되어서는 안 된다 — Phase 5에는 `.next` 빌드 산출물에 대해 이를 grep으로 확인하는 절차가 명시되어 있다.
 - 무차별 대입 방지: `login_attempts` 테이블, 같은 IP에서 10분 내 5회 실패 시 10분 차단, 메시지는 "잠시 후 다시 시도해 주세요"로만 표시(세부 정보 노출 금지).
 

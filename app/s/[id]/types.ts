@@ -14,8 +14,11 @@ export type Answer = {
   id: string;
   member_id: string;
   body: string | null;
-  excerpt_text: string | null;
-  excerpt_reason: string | null;
+  quote_text: string | null;
+  quote_reason: string | null;
+  title: string | null;
+  choice: string | null;
+  slot: number;
   submitted_at: string | null;
   member: { name: string } | null;
   replies: Reply[];
@@ -28,6 +31,7 @@ export type Topic = {
   title: string;
   body: string | null;
   has_rating: boolean;
+  choice_options: string[];
   answers: Answer[];
 };
 

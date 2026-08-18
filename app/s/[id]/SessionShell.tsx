@@ -1,6 +1,6 @@
 "use client";
 
-import { isAnswerComplete } from "@/lib/topics";
+import { isAnswerComplete, isMandatoryKind } from "@/lib/topics";
 import { SessionSidebar } from "./SessionSidebar";
 import { TopicPanel } from "./TopicPanel";
 import { EditorLockProvider } from "./EditorLockContext";
@@ -37,8 +37,11 @@ export function SessionShell({
   const ratingTopic = topics.find((t) => t.has_rating) ?? null;
   const myRating = ratings.find((r) => r.member_id === currentMemberId)?.stars ?? null;
 
+  const mandatoryTopics = topics.filter((t) => isMandatoryKind(t.kind));
   const completedCount = members.filter((m) =>
-    topics.every((t) => isAnswerComplete(t.kind, t.answers.find((a) => a.member_id === m.id) ?? null))
+    mandatoryTopics.every((t) =>
+      isAnswerComplete(t.kind, t.answers.find((a) => a.member_id === m.id) ?? null)
+    )
   ).length;
 
   return (
@@ -63,6 +66,7 @@ export function SessionShell({
                 key={t.id}
                 sessionId={sessionId}
                 sessionStatus={status}
+                meetsAt={meetsAt}
                 topic={t}
                 members={members}
                 currentMemberId={currentMemberId}
