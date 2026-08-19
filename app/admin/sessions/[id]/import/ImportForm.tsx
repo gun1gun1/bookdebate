@@ -87,6 +87,25 @@ export function ImportForm({ sessionId, members }: { sessionId: string; members:
             ))}
           </ul>
 
+          {preview.unclassified.length > 0 && (
+            <div className="mb-3 flex flex-col gap-2 rounded border border-orange-300 bg-orange-50 p-2">
+              <p className="text-sm font-semibold">
+                미분류 텍스트 {preview.unclassified.length}건 — 자동 저장되지 않습니다. 직접
+                확인 후 수동으로 배정하거나 무시하세요.
+              </p>
+              {preview.unclassified.map((block, i) => (
+                <div key={i} className="rounded border border-orange-200 bg-white p-2">
+                  <p className="mb-1 text-xs font-semibold text-gray-600">
+                    {block.topicOrderNo}. {block.topicTitle}
+                  </p>
+                  <pre className="whitespace-pre-wrap font-mono text-xs text-gray-700">
+                    {block.text}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          )}
+
           {preview.unmatchedNames.length > 0 && (
             <div className="mb-3 flex flex-col gap-2 rounded border border-yellow-300 bg-yellow-50 p-2">
               <p className="text-sm font-semibold">

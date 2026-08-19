@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { updateSessionAction, deleteSessionAction } from "./actions";
+import {
+  updateSessionAction,
+  deleteSessionAction,
+  countUnrepliedDifficultAnswersAction,
+} from "./actions";
 import { DeleteButton } from "@/components/DeleteButton";
 import type { SessionStatus } from "@/lib/supabase/types";
 
@@ -29,6 +33,16 @@ export function SessionRow({ session, members }: { session: Session; members: Op
           <form
             action={(formData) => {
               startTransition(async () => {
+                const nextStatus = String(formData.get("status") ?? "");
+                if (nextStatus === "closed" && session.status !== "closed") {
+                  const unrepliedCount = await countUnrepliedDifficultAnswersAction(session.id);
+                  if (unrepliedCount > 0) {
+                    const proceed = window.confirm(
+                      `힘든 구절 답변 중 아직 댓글이 없는 것이 ${unrepliedCount}개 있습니다.\n지금 닫으면 더 이상 댓글을 달 수 없습니다. 계속하시겠습니까?`
+                    );
+                    if (!proceed) return;
+                  }
+                }
                 await updateSessionAction(session.id, formData);
                 setEditing(false);
               });

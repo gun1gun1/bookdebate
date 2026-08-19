@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { SessionStatus } from "@/lib/supabase/types";
+import { isPostMeetingOpen } from "@/lib/topics";
 import {
   applyTopicSpecs,
   topicSpecsFromSession,
@@ -84,6 +85,40 @@ export async function updateSessionAction(id: string, formData: FormData) {
     .eq("id", id);
 
   revalidatePath("/admin/sessions");
+}
+
+// 회차를 open→closed로 바꾸기 전 관리자 확인창(REFACTOR_PLAN.md 4.10절)에 쓰는
+// 카운트. "같이 생각해 보니" 댓글이 열리는 조건(모임 당일 KST 이후, lib/topics.ts
+// isPostMeetingOpen)이 아직 안 됐으면 애초에 댓글을 못 다는 게 당연하므로 경고
+// 대상이 아니다 — 그 경우 0을 반환해 확인창 자체를 띄우지 않는다.
+export async function countUnrepliedDifficultAnswersAction(sessionId: string): Promise<number> {
+  await requireAdmin();
+
+  const supabase = getSupabaseServerClient();
+
+  const { data: sessionRow } = await supabase
+    .from("sessions")
+    .select("meets_at")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (!sessionRow || !isPostMeetingOpen(sessionRow.meets_at)) return 0;
+
+  const { data: topics } = await supabase
+    .from("topics")
+    .select("answers(quote_text, replies(id))")
+    .eq("session_id", sessionId)
+    .eq("kind", "difficult");
+
+  if (!topics) return 0;
+
+  let count = 0;
+  for (const topic of topics) {
+    for (const answer of topic.answers) {
+      if (answer.quote_text?.trim() && answer.replies.length === 0) count++;
+    }
+  }
+  return count;
 }
 
 export async function deleteSessionAction(id: string) {
