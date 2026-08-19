@@ -113,14 +113,14 @@ URL은 `/sessions/`가 아니라 `/s/`로 짧게 유지한다. **[R1]** 뷰 전�
 
 - 논제 묶음을 템플릿으로 저장. 유형 선택은 `/admin/sessions/[id]/topics`와 동일하게 5종. **[R1]** 단, 템플릿 항목에는 `choice_options` 컬럼이 없다 — `choice` 항목이 실제 회차에 적용되면 `topics.choice_options`는 DB 기본값(`{찬성,반대}`)을 받고, 필요하면 관리자가 회차별 논제 수정 화면에서 바꾼다.
 - 새 회차 생성 시 "템플릿에서 시작" 선택 가능.
-- 기본 템플릿 하나를 시드에 넣는다: 1) `free` · "책을 소개하는 한 문장 요약" · 담당=책 선정자 · 별점 있음, 2) `excerpt` · "인상 깊게 읽은 부분이나 발췌를 이유와 함께 소개해 주세요". **[R1-c2 예정]** 5논제 구성(difficult/choice/appendix 추가)으로 갱신 예정 — 이번 R1-c1 시점에는 아직 2논제 그대로다(`REFACTOR_PLAN.md` 4.6절).
+- 기본 템플릿 하나를 시드에 넣는다: 1) `free` · "책을 소개하는 한 문장 요약" · 담당=책 선정자 · 별점 있음, 2) `excerpt` · "인상 깊게 읽은 부분이나 발췌를 이유와 함께 소개해 주세요". **[미완료]** 5논제 구성(difficult/choice/appendix 추가)으로 갱신하는 작업은 아직 안 됐다 — `supabase/seed.sql`은 여전히 이 2논제 그대로다(`REFACTOR_PLAN.md` 4.6절 참고, 남은 작업 상세는 같은 문서 4.6절 끝에 정리).
 - 이전 회차를 골라 논제 구조만 복제하는 기능도 포함.
 
 ### 붙여넣기 일괄 이관 (`/admin/sessions/[id]/import`)
 
 구글 문서에서 복사한 텍스트를 붙여넣으면 파싱한다. 파싱 규칙과 신뢰 경계는 SECURITY.md와 CLAUDE.md의 "붙여넣기 이관 파서" 절 참고.
 
-**[R1-c1 시점 상태]**: `lib/admin/importParser.ts`는 아직 `free`/`excerpt` 2종만 판정한다. `difficult`/`choice`/`appendix` 판정 확장(원문 라벨 인식, `choice` 입장 지정 UI 등, `REFACTOR_PLAN.md` 4.8절)은 **R1-c2에서 구현 예정** — 이번 R1-c1(화면·저장 구현)의 범위 밖이다. `app/admin/sessions/[id]/import/actions.ts`의 DB insert는 R1-a 컬럼 리네임(`quote_text`/`quote_reason`)에 맞춰 갱신됐다.
+**[R1-c2 완료]**: `lib/admin/importParser.ts`는 `free`/`excerpt`/`difficult` 3종을 구조적으로 판정한다(difficult는 "이름"→"힘든 구절" 라벨→`quote_text`→"저는 이리 생각했는데…"→`quote_reason`→"같이 생각하니…"→`이름: 댓글` 반복 형식, `REFACTOR_PLAN.md` 4.8절). `choice`/`appendix`는 kind는 판정하되 구조 파싱은 하지 않고 논제 원문 전체를 "미분류 텍스트"로 미리보기에 보여준다 — 관리자가 수동으로 처리한다(자동 answers/replies 생성 없음). `app/admin/sessions/[id]/import/actions.ts`의 DB insert는 R1-a 컬럼 리네임(`quote_text`/`quote_reason`)에 맞춰 갱신됐다.
 
 흐름:
 
@@ -144,7 +144,7 @@ draft → open → closed
 
 - `draft`: 관리자가 논제를 세팅 중. 참여자에게 회차 목록과 논제 내용은 보이지만(완전히 숨기지 않음), 답변/댓글 작성 UI는 비활성화되고 서버도 쓰기를 거부한다.
 - `open`: 참여자가 답변/댓글 작성 가능. `/` 상단 카드에 노출.
-- `closed`: 작성 마감. 조회(아카이브)는 계속 가능하지만 새 답변/댓글 작성과 기존 것의 수정은 서버가 완전히 거부한다. 늦참자를 구제하려면 관리자가 상태를 다시 `open`으로 되돌려야 한다 — 별도의 "재오픈" 기능을 새로 만들지 않고 기존 상태 변경으로 처리한다. **[R1-c2 예정]** `closed` 전환 직전 "댓글 없는 힘든 구절 N개" 경고를 띄우는 안전장치는 아직 미구현(`REFACTOR_PLAN.md` 4.10절).
+- `closed`: 작성 마감. 조회(아카이브)는 계속 가능하지만 새 답변/댓글 작성과 기존 것의 수정은 서버가 완전히 거부한다. 늦참자를 구제하려면 관리자가 상태를 다시 `open`으로 되돌려야 한다 — 별도의 "재오픈" 기능을 새로 만들지 않고 기존 상태 변경으로 처리한다. **[R1-c2 완료]** `closed` 전환 직전 "댓글 없는 힘든 구절 N개" 경고(`app/admin/sessions/SessionRow.tsx`, `countUnrepliedDifficultAnswersAction`)가 구현됐다 — `REFACTOR_PLAN.md` 4.10절.
 
 ## v2 범위 — **[R1: `choice`는 승격, 나머지만 남음]**
 

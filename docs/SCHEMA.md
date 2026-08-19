@@ -2,7 +2,7 @@
 
 독서토론 앱의 Postgres(Supabase) 스키마 명세. 실제 마이그레이션은 `supabase/migrations/`에 있다.
 
-**[R1]** `topics.kind`가 5종(`free`/`excerpt`/`difficult`/`choice`/`appendix`)으로 늘었고, `answers` 컬럼 리네임/추가 + `slot` 기반 유니크 전환, `votes` 테이블 제거가 있었다 — `supabase/migrations/0003_r1a_schema.sql`(설계 근거는 `docs/MIGRATION_R1.md`). **이 문서는 그 마이그레이션이 적용된 이후의 스키마를 기술한다** — 작성 시점 기준 프로덕션에는 아직 미적용(적용 계획은 `docs/MIGRATION_R1.md` 4절 "배포 순서" 참고). 결정 배경(왜 `choice`를 정식 kind로 승격했는지, 왜 `slot` 설계를 택했는지 등)은 `docs/DECISIONS.md` "R1" 절 참고 — 이 문서는 "무엇"만 다룬다.
+**[R1]** `topics.kind`가 5종(`free`/`excerpt`/`difficult`/`choice`/`appendix`)으로 늘었고, `answers` 컬럼 리네임/추가 + `slot` 기반 유니크 전환, `votes` 테이블 제거가 있었다 — `supabase/migrations/0003_r1a_schema.sql`. **[R1-e]** `replies.choice` 컬럼 추가 — `supabase/migrations/0004_choice_reply_tag.sql`. **이 문서는 두 마이그레이션이 적용된 이후의 스키마를 기술하며, 프로덕션에도 둘 다 적용됐다.** 결정 배경(왜 `choice`를 정식 kind로 승격했는지, 왜 `slot` 설계를 택했는지 등)은 `docs/DECISIONS.md` "R1" 절 참고 — 이 문서는 "무엇"만 다룬다. `0003` 롤백 절차는 이 문서 맨 끝 "부록: R1-a 롤백 절차" 참고.
 
 DB 접근 원칙(자세한 내용은 SECURITY.md 참고): 전 테이블 `ENABLE ROW LEVEL SECURITY`, 정책은 만들지 않는다(전면 거부). 모든 읽기/쓰기는 `lib/supabase/server.ts`의 service-role 클라이언트를 통해 Next.js 서버에서만 일어난다. **[R1에서도 변경 없음]** — `0003` 마이그레이션은 컬럼 추가/리네임과 `votes` drop만 하며 RLS 관련 statement는 포함하지 않는다.
 
@@ -57,7 +57,7 @@ members (1) ──< sessions.selector_member_id / host_member_id (역할)
 | deadline_at | date | | |
 | selector_member_id | uuid | FK -> members.id, nullable | |
 | host_member_id | uuid | FK -> members.id, nullable | |
-| status | text | not null default 'draft', check in ('draft','open','closed') | ★ 쓰기 권한의 단일 기준. **[R1]** difficult 논제에 대한 reply("같이 생각해 보니")도 예외 없이 이 규칙을 따른다 — 대신 회차를 `closed`로 바꾸기 직전 관리자 화면이 "댓글 없는 힘든 구절 N개" 경고를 띄운다(R1-c2 예정, REFACTOR_PLAN.md 4.10절). `DECISIONS.md`에 "다음 회차를 열기 전까지 이전 회차를 닫지 않는다"를 운영 원칙으로 기록. |
+| status | text | not null default 'draft', check in ('draft','open','closed') | ★ 쓰기 권한의 단일 기준. **[R1]** difficult 논제에 대한 reply("같이 생각해 보니")도 예외 없이 이 규칙을 따른다 — 대신 회차를 `closed`로 바꾸기 직전 관리자 화면이 "댓글 없는 힘든 구절 N개" 경고를 띄운다(`app/admin/sessions/actions.ts`의 `countUnrepliedDifficultAnswersAction`, R1-c2에서 구현 완료). `DECISIONS.md`에 "다음 회차를 열기 전까지 이전 회차를 닫지 않는다"를 운영 원칙으로 기록. |
 | blind_enabled | boolean | not null default false | |
 | created_at | timestamptz | not null default now() | |
 
@@ -121,7 +121,7 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 | answer_id | uuid | FK -> answers.id, not null, **ON DELETE CASCADE** | |
 | member_id | uuid | FK -> members.id, not null | |
 | body | text | not null | **[R1]** kind마다 UI 레이블이 다르다(컬럼/의미는 동일) — `excerpt` "사유 더하기"(유지), `difficult` "같이 생각해 보니", `free`/`choice`/`appendix` "의견 남기기". `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고. **[R1-e]** `choice` reply는 근거가 선택 입력이라 빈 문자열(`""`)일 수 있다 — `not null` 제약은 유지하되 빈 문자열을 허용한다(다른 kind의 reply는 `upsertReplyAction`이 `body.trim()`이 비면 거부하므로 계속 비어 있을 수 없다). |
-| **choice** | text | null, **[R1-e 신규]** | choice 전용: 이 reply가 어느 입장(`topics.choice_options`의 값 중 하나)에 대한 반응인지. 다른 kind는 항상 null. `answer_id`+`member_id`로 "게시물당 참여자 1 reply"를 서버 액션(`upsertChoiceReplyAction`)이 upsert로 지킨다(DB 유니크 제약은 없음 — 일반 reply와 같은 테이블을 공유해서, 다른 kind의 "여러 번 의견 남기기"를 막지 않기 위해). 마이그레이션: `supabase/migrations/0004_choice_reply_tag.sql`(작성 시점 기준 미실행). |
+| **choice** | text | null, **[R1-e 신규]** | choice 전용: 이 reply가 어느 입장(`topics.choice_options`의 값 중 하나)에 대한 반응인지. 다른 kind는 항상 null. `answer_id`+`member_id`로 "게시물당 참여자 1 reply"를 서버 액션(`upsertChoiceReplyAction`)이 upsert로 지킨다(DB 유니크 제약은 없음 — 일반 reply와 같은 테이블을 공유해서, 다른 kind의 "여러 번 의견 남기기"를 막지 않기 위해). 마이그레이션: `supabase/migrations/0004_choice_reply_tag.sql`(적용됨). |
 | created_at | timestamptz | not null default now() | |
 
 정책: 본인 answer 삭제 시 하위 replies도 CASCADE 삭제. 본인 answer에 본인이 reply 허용. **[R1]** `kind != 'excerpt'`면 reply 금지하던 제한이 **삭제**됐다 — 이제 5종 전부의 answer에 reply를 달 수 있다. 이 검사는 원래도 Server Action(`upsertReplyAction`)에서 했으므로(트리거 없음) 조건 분기를 바꾸는 것만으로 반영된다 — 스키마 변경 없음. **[R1-e]** `choice`의 찬반 reply는 `upsertReplyAction`이 아니라 별도의 `upsertChoiceReplyAction`(choice 값 검증 + member 기준 upsert)이 처리한다.
@@ -154,7 +154,7 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 
 레이블 정책의 근거는 `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고 — 원문 표현이 있는 kind(`excerpt`/`difficult`)는 그대로 쓰고, 신규 유형(`free`/`choice`/`appendix`)만 일반화한 "의견 남기기"를 쓴다.
 
-이 표는 SPEC.md의 화면별 분기와 반드시 일치해야 한다. **이관 파서(`lib/admin/importParser.ts`)는 아직 `free`/`excerpt` 2종만 판정한다 — `difficult`/`choice`/`appendix` 판정 확장은 R1-c2 예정(REFACTOR_PLAN.md 4.8절), 이번 R1-c1(화면·저장 구현)의 범위 밖이다.**
+이 표는 SPEC.md의 화면별 분기와 반드시 일치해야 한다. **이관 파서(`lib/admin/importParser.ts`)는 R1-c2에서 `free`/`excerpt`/`difficult` 3종을 구조적으로 판정하도록 확장됐다(우선순위: `choice` > `excerpt` > `difficult` > `appendix` > `free`, REFACTOR_PLAN.md 4.8절). `choice`/`appendix`는 논제 kind는 판정하되 구조 파싱은 하지 않고, 논제 원문 전체를 "미분류 텍스트"로 보존해 관리자가 미리보기 화면에서 수동으로 처리한다.**
 
 ## difficult 댓글("같이 생각해 보니") 게이팅 — Asia/Seoul 기준
 
@@ -163,8 +163,8 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 - 판정: "지금 시각을 KST로 변환했을 때의 날짜" ≥ `meets_at`.
 - 구현 위치: `lib/topics.ts`의 `isPostMeetingOpen(meetsAt: string): boolean` — 클라이언트(`ReplyThread`의 `gate` prop, 입력창 대신 안내 문구 표시)와 서버(`upsertReplyAction`의 실제 쓰기 거부) 양쪽이 재사용한다. 클라이언트 표시만으로 막지 않는다(SECURITY.md 원칙) — `gate` prop을 우회해 액션을 직접 호출해도 서버가 독립적으로 거부한다.
 - 다른 4kind(`free`/`excerpt`/`choice`/`appendix`)의 reply는 이 게이트가 없다 — `session.status==='open'`이면 언제든 작성 가능.
-- 이 게이팅과 `sessions.status === 'open'` 규칙은 **AND**로 결합한다 — 두 조건을 모두 만족해야 difficult 댓글을 쓸 수 있다(관리자도 예외 없음). 대신 관리자 화면이 `closed` 전환 직전 "댓글 없는 힘든 구절 N개" 경고를 띄운다(R1-c2 예정, REFACTOR_PLAN.md 4.10절). `DECISIONS.md`에 "다음 회차를 열기 전까지 이전 회차를 닫지 않는다"를 운영 원칙으로 기록.
-- 이관 파서로 과거 회차를 백필할 때는 이 게이트를 적용하지 않을 계획이다(R1-c2 예정, REFACTOR_PLAN.md 4.8절).
+- 이 게이팅과 `sessions.status === 'open'` 규칙은 **AND**로 결합한다 — 두 조건을 모두 만족해야 difficult 댓글을 쓸 수 있다(관리자도 예외 없음). 대신 관리자 화면이 `closed` 전환 직전 "댓글 없는 힘든 구절 N개" 경고를 띄운다(`countUnrepliedDifficultAnswersAction`, R1-c2에서 구현 완료). `DECISIONS.md`에 "다음 회차를 열기 전까지 이전 회차를 닫지 않는다"를 운영 원칙으로 기록.
+- 이관 파서로 과거 회차를 백필할 때는 이 게이트를 적용하지 않는다(`confirmImportAction`의 direct insert는 `requireAdmin()`만 통과하면 되고, 라이브 쓰기 게이트를 거치지 않는다).
 
 ## `choice` 논제 상세 **[R1-e: 2단 구조로 전환, `docs/DECISIONS.md` "R1-e" 참고]**
 
@@ -178,3 +178,63 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 ## 인덱스 및 성능 메모
 
 **[R1에서 변경 없음]** — 트래픽이 극히 적어(월 1회, 5~8명) 인덱스를 과설계하지 않는다는 원칙 그대로. `slot` 전환은 유니크 제약의 "모양"만 바뀌는 것이라 `answers(topic_id)`의 FK 기본 인덱스로 조회 성능은 충분하다.
+
+## 부록: R1-a 롤백 절차
+
+`supabase/migrations/0003_r1a_schema.sql`은 적용됐다(위 "실사용 데이터 존재 시점" 참고). 아래는 **적용 후 실사용 데이터가 쌓인 뒤** 되돌려야 할 경우의 절차다(옛 `docs/MIGRATION_R1.md` 초안에서 옮김). `begin`/`commit`으로 묶여 있어 적용 도중 실패하면 자동 롤백된다(부분 적용 상태 없음) — 아래는 그와 별개로 이미 커밋된 마이그레이션을 나중에 되돌리는 경우다.
+
+```sql
+begin;
+
+-- votes 테이블 복구(0001_init_schema.sql의 원본 정의 재사용)
+create table votes (
+  id uuid primary key default gen_random_uuid(),
+  topic_id uuid not null references topics(id),
+  member_id uuid not null references members(id),
+  choice text not null,
+  unique (topic_id, member_id)
+);
+alter table votes enable row level security;
+-- ⚠ 이 시점까지 answers.choice에 실제로 쌓인 데이터는 이 새 빈 votes 테이블로
+-- 자동 이관되지 않는다 — 백필이 필요하면 별도 스크립트로 사람이 판단해 옮긴다.
+
+-- slot 기반 유니크를 (topic_id, member_id) 2컬럼으로 되돌림
+-- ⚠ appendix 논제에 slot > 0인 다건 게시물이 실제로 쌓여 있으면 아래가 제약
+-- 위반으로 실패한다. 먼저 위반 여부를 확인:
+--   select topic_id, member_id, count(*) from answers
+--   group by topic_id, member_id having count(*) > 1;
+-- 위반 행이 있으면 appendix 게시물 중 어느 것을 남길지 사람이 판단해야 한다.
+alter table answers drop constraint answers_topic_member_slot_key;
+alter table answers add constraint answers_topic_id_member_id_key unique (topic_id, member_id);
+alter table answers drop column slot;
+
+-- 신규 컬럼 제거 — ⚠ 데이터 손실. title/choice/choice_options에 실제로 입력된
+-- 내용이 있다면 이 시점에 전부 사라진다. 지우기 전에 반드시 백업:
+--   create table answers_backup_r1 as
+--   select id, title, choice from answers where title is not null or choice is not null;
+alter table topics drop column choice_options;
+alter table answers drop column choice;
+alter table answers drop column title;
+alter table replies drop column choice; -- 0004_choice_reply_tag.sql 롤백분
+
+-- 컬럼명 원복 — 값 손실 없음(메타데이터 연산)
+alter table answers rename column quote_text to excerpt_text;
+alter table answers rename column quote_reason to excerpt_reason;
+
+-- kind CHECK 제약 축소
+-- ⚠ 이 시점에 kind가 difficult/choice/appendix인 topics/topic_template_items
+-- 행이 남아 있으면 이 ALTER 자체가 제약 위반으로 실패한다. 먼저 그 행들을
+-- 지우거나 kind를 free/excerpt로 바꿔야 하는데, 어느 쪽이든 "그 kind로 쓰인
+-- 논제들이 free/excerpt 의미로 재해석된다"는 실질적 데이터 손실이다.
+alter table topic_template_items drop constraint topic_template_items_kind_check;
+alter table topic_template_items add constraint topic_template_items_kind_check
+  check (kind in ('free', 'excerpt', 'choice'));
+
+alter table topics drop constraint topics_kind_check;
+alter table topics add constraint topics_kind_check
+  check (kind in ('free', 'excerpt', 'choice'));
+
+commit;
+```
+
+사람 판단이 필요한 지점은 두 곳뿐이다: **(a)** `appendix` 논제에 다건 게시물이 실제로 쌓인 뒤의 slot 롤백, **(b)** 신규 kind(`difficult`/`choice`/`appendix`)가 실제로 쓰인 뒤의 kind CHECK 축소. 둘 다 "새 기능이 실제로 쓰이기 전"이라는 좁은 창 안에서는 완전 무손실 롤백이 가능하다.

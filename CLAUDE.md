@@ -4,20 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 프로젝트 현재 상태
 
-Phase 0(스펙 문서화)까지 완료됐다. 코드는 아직 없다. `docs/` 아래에 아래 문서들이 있으니, 작업 전에 관련된 것을 먼저 읽어라 — 이 CLAUDE.md는 요약이지 대체가 아니다.
+Phase 0~5(스펙 문서화 → 스캐폴딩/스키마/시드 → 인증 → 관리자 화면 → 참여자 화면 → 배포 준비)가 모두 끝났고, 실제로 Vercel에 배포되어 쓰이고 있다(https://bookdebate.vercel.app). 그 위에 R1 개편(레이아웃 전면 개편, 논제 5종 `free`/`excerpt`/`difficult`/`choice`/`appendix` 정식 구현, "내담리" 브랜딩)도 R1-b/R1-a/R1-c(R1-c1 화면·저장, R1-e choice 2단 구조 전환, R1-c2 이관 파서 확장·닫기 경고)까지 끝났다 — 남은 건 `docs/REFACTOR_PLAN.md`의 **R1-d**(구 코드/문서 잔재 정리, `SECURITY.md` 체크리스트 재확인, 시드 데이터에 5논제 반영 등 배포 전 최종 점검)뿐이다. `docs/` 아래에 아래 문서들이 있으니, 작업 전에 관련된 것을 먼저 읽어라 — 이 CLAUDE.md는 요약이지 대체가 아니다.
 
 - `docs/SPEC.md` — 화면, 기능, 사용자 흐름, 상태 전이
-- `docs/SCHEMA.md` — 테이블 정의, 관계, `topics.kind`에 따른 answers/replies 사용 방식, 시드 계획
+- `docs/SCHEMA.md` — 테이블 정의, 관계, `topics.kind`에 따른 answers/replies 사용 방식, R1-a 마이그레이션 롤백 절차
 - `docs/SECURITY.md` — 권한 매트릭스, 서버 측 필수 검증 체크리스트
-- `docs/DECISIONS.md` — 결정과 이유, 채택하지 않은 대안 (Phase 진행 중 바뀐 결정은 여기 계속 추가)
+- `docs/DECISIONS.md` — 결정과 이유, 채택하지 않은 대안 (진행 중 바뀐 결정은 여기 계속 추가되는 append-only 로그 — 과거 항목은 고치지 말고 새 항목을 더할 것)
 - `docs/RETENTION.md` — 이 앱이 계속 쓰이게 만드는 장치와 근거
-- `docs/OPEN_QUESTIONS.md` — 아직 정해지지 않은 정책 질문들. Phase 1 착수 전 데이터/정책 관련 항목(1~6번)은 답을 정해야 마이그레이션을 정확히 쓸 수 있다.
+- `docs/OPEN_QUESTIONS.md` — 아직 정해지지 않은 운영/UI 정책 질문들(7~13번). 데이터/정책 관련 1~6번은 이미 답이 정해져 DECISIONS.md로 옮겨졌다.
+- `docs/REFACTOR_PLAN.md` — R1 개편 계획과 단계별 진행 현황(R1-b/a/c 완료, R1-d 남음)
 
-원본 기획 문서 `독서토론앱.md`는 Phase 0~5의 실제 프롬프트 블록을 담고 있는 계획서로 계속 유효하다 — 각 Phase는 순서대로 실행하도록 만들어졌다. 다음 작업은 **Phase 1(스캐폴딩 + 스키마 + 시드)**이며, 착수 전 `docs/OPEN_QUESTIONS.md`의 데이터/정책 질문에 먼저 답해야 한다(문서 자체에 명시된 순서).
+원본 기획 문서 `독서토론앱.md`는 Phase 0~5의 실제 프롬프트 블록을 담고 있는 계획서로, 지금은 과거 이력 참고용으로 유효하다.
 
-작업을 시작하기 전에 저장소가 몇 번째 Phase까지 진행됐는지 먼저 확인하라(예: `app/`이 존재하는가? 인증이 이미 구현되어 있는가?). 어떤 Phase가 끝났다고 가정하지 말고 실제 상태에서 이어서 진행할 것.
+작업을 시작하기 전에 저장소가 실제로 어디까지 진행됐는지 먼저 확인하라(예: `git log`, `docs/DECISIONS.md`의 최신 절, `docs/REFACTOR_PLAN.md`의 단계 표) — 어떤 단계가 끝났다고 문서만 보고 가정하지 말고 코드/DB의 실제 상태에서 이어서 진행할 것.
 
-아직 프로젝트가 스캐폴딩되지 않았으므로(스캐폴딩은 Phase 1에서 `Next.js App Router + TypeScript + Tailwind`로 진행됨) 빌드/린트/테스트 명령이 없다. 스캐폴딩 이후에는 실제 명령어를 이 파일에 추가할 것.
+## 빌드 · 린트 · 개발
+
+```bash
+npm install
+npm run dev      # http://localhost:3000
+npm run build    # 프로덕션 빌드 + 타입체크(Next.js가 tsc를 겸함)
+npm run lint     # ESLint
+```
 
 ## 제품 배경
 
@@ -25,7 +33,7 @@ Phase 0(스펙 문서화)까지 완료됐다. 코드는 아직 없다. `docs/` �
 
 ## 핵심 도메인 개념: `topics.kind`가 전체를 좌우한다
 
-원본 구글 문서 구조에는 다섯 가지 논제 형태가 있고, 이 구분이 데이터 모델과 UI 전체의 축이다(R1에서 5종 전부 정식 구현됨 — `docs/REFACTOR_PLAN.md`, `docs/SCHEMA_R1_DRAFT.md` 참고):
+원본 구글 문서 구조에는 다섯 가지 논제 형태가 있고, 이 구분이 데이터 모델과 UI 전체의 축이다(R1에서 5종 전부 정식 구현됨 — `docs/REFACTOR_PLAN.md`, `docs/SCHEMA.md` 참고):
 
 - **`free` 논제** — 평평한 구조: 참여자당 답변 1개, 카드로 나란히 표시. 전원 참여 전제.
 - **`excerpt` 논제** — 2단 중첩 구조: 각 참여자가 발췌+이유를 올리고(`answers` 행), **다른 참여자들이 그 특정 발췌 아래에 사유를 덧붙인다**(그 `answer`에 달리는 `replies` 행이며, 논제에 직접 달리는 것이 아니다). 이것이 "사유 더하기" 스레드이며, 이 앱을 단순 폼과 가장 크게 구분 짓는 기능이다. 전원 참여 전제.

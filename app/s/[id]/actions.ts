@@ -329,7 +329,7 @@ export async function upsertReplyAction(
     return { ok: false, error: "지금은 의견을 작성할 수 없습니다." };
   }
   // difficult의 "같이 생각해 보니" 댓글만 모임 당일(KST) 이후로 추가 제한한다
-  // (docs/SCHEMA_R1_DRAFT.md "difficult 댓글 게이팅" 절 — session.status==='open'과
+  // (docs/SCHEMA.md "difficult 댓글 게이팅" 절 — session.status==='open'과
   // AND로 결합, 클라이언트 표시만으로 막지 않는다).
   if (answer.topic.kind === "difficult" && !isPostMeetingOpen(answer.topic.session.meets_at)) {
     return { ok: false, error: "모임 당일부터 남길 수 있습니다." };

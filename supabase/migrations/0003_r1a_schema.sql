@@ -2,12 +2,10 @@
 -- R1-a: topics.kind에 'difficult'/'choice'/'appendix' 추가(choice는 이번에 정식
 -- 구현 대상으로 승격), answers 컬럼 리네임 + 신규 컬럼, slot 기반 유니크 전환,
 -- votes 테이블 제거.
--- 설계 근거: docs/REFACTOR_PLAN.md, docs/MIGRATION_R1.md, docs/SCHEMA_R1_DRAFT.md.
+-- 설계 근거: docs/REFACTOR_PLAN.md, docs/DECISIONS.md "R1" 절.
 --
--- ⚠ 아직 실행되지 않았다. R1-c 코드 배포와 같은 배포 창에서 적용할 것
--- (docs/MIGRATION_R1.md 4절 "배포 순서" 참고) — 이 마이그레이션 적용 직후
--- 곧바로 R1-c 코드가 배포되지 않으면, 그 사이에 살아있는 구 코드가
--- excerpt_text 컬럼/votes 테이블에 접근하려다 즉시 오류를 낸다.
+-- 적용됨(프로덕션 DB에 실행 완료, R1-c 코드 배포와 같은 배포 창에서 적용).
+-- 롤백 절차는 docs/SCHEMA.md "부록: R1-a 롤백 절차" 참고.
 
 begin;
 
@@ -36,7 +34,7 @@ alter table topic_template_items
 --    RENAME COLUMN은 메타데이터 연산이라 값 손실 없음, 즉시 적용.
 --
 --    ⚠ 이 리네임은 기존 코드(아직 quote_text를 모르는 코드)를 즉시 깨뜨린다.
---    R1-c 코드 배포와 같은 배포 창에서 적용할 것 — docs/MIGRATION_R1.md 4절 참고.
+--    R1-c 코드 배포와 같은 배포 창에서 적용됐다(적용 완료).
 -- ============================================================
 alter table answers rename column excerpt_text to quote_text;
 alter table answers rename column excerpt_reason to quote_reason;
