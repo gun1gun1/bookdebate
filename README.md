@@ -7,6 +7,10 @@
 
 이 문서(README)는 개발·배포용이다.
 
+## 배포 사이트
+
+https://bookdebate.vercel.app
+
 ## 로컬 실행
 
 ```bash
