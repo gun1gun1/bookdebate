@@ -183,6 +183,7 @@ export interface Database {
           answer_id: string;
           member_id: string;
           body: string;
+          choice: string | null;
           created_at: string;
         };
         Insert: {
@@ -190,6 +191,7 @@ export interface Database {
           answer_id: string;
           member_id: string;
           body: string;
+          choice?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["replies"]["Insert"]>;

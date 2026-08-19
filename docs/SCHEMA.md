@@ -97,21 +97,21 @@ members (1) ──< sessions.selector_member_id / host_member_id (역할)
 | id | uuid | PK | |
 | topic_id | uuid | FK -> topics.id, not null | |
 | member_id | uuid | FK -> members.id, not null | |
-| body | text | | free: 소감 / choice: 근거(선택 입력) / appendix: 본문 |
+| body | text | | free: 소감 / **[R1-e]** choice: 게시물(발제자가 올리는 구체적인 논제/장면) 본문 / appendix: 본문 |
 | **quote_text** | text | | **[R1] `excerpt_text`를 리네임.** excerpt: 발췌 원문 / difficult: 힘든 구절. 두 kind가 공유. |
 | **quote_reason** | text | | **[R1] `excerpt_reason`을 리네임.** excerpt: 고른 이유 / difficult: 그 이유(입력 라벨 "저는 이리 생각했는데…"). |
 | **title** | text | **[R1 신규]** | appendix 전용: 게시물 짧은 제목(선택). 다른 kind는 항상 null. |
-| **choice** | text | **[R1 신규]** | choice 전용: 이 사람이 고른 입장, `topics.choice_options`의 값 중 하나(자유 텍스트로 저장, DB 레벨에서 `choice_options` 원소인지 강제하지 않음 — 과설계 방지). 다른 kind는 항상 null. |
+| **choice** | text | **[R1 신규, R1-e부터 미사용]** | v1(R1-c1) 시점엔 choice 전용: 이 사람이 고른 입장. **[R1-e]** choice가 발제자 게시물 + 찬반 reply 2단 구조로 바뀌면서 입장은 `replies.choice`로 옮겨갔다 — 이 컬럼은 리네임/삭제하지 않았지만 새 코드는 더 이상 쓰지 않는다(`docs/DECISIONS.md` "R1-e: choice 논제 2단 구조 전환" 참고, 정리는 별도 턴). 다른 kind는 계속 항상 null. |
 | **slot** | smallint | **[R1 신규] not null default 0** | appendix가 1인 다건을 가질 때 순번(0, 1, 2, …). 다른 kind는 항상 0. |
 | submitted_at | timestamptz | | |
 | updated_at | timestamptz | | |
 
 **[R1] 제약 변경**: 이전에는 `UNIQUE (topic_id, member_id)`로 "논제당 참여자당 답변 1개"를 DB가 강제했다. R1부터는 `UNIQUE (topic_id, member_id, slot)`(제약명 `answers_topic_member_slot_key`)로 바뀐다:
 
-- `topic.kind !== 'appendix'`인 경우: `slot`은 항상 `0`으로 고정 — 실질적으로 이전과 동일하게 **DB가 계속 1인 1답변을 강제한다.** `app/s/[id]/actions.ts`의 `upsertAnswerAction`/`upsertChoiceAction`이 `upsert(..., {onConflict: "topic_id,member_id,slot"})`로 이 제약을 그대로 충돌 대상으로 쓴다(존재 여부를 먼저 조회하지 않는다 — DB가 원자적으로 처리).
+- `topic.kind !== 'appendix'`인 경우: `slot`은 항상 `0`으로 고정 — 실질적으로 이전과 동일하게 **DB가 계속 1인 1답변을 강제한다.** `app/s/[id]/actions.ts`의 `upsertAnswerAction`이 `upsert(..., {onConflict: "topic_id,member_id,slot"})`로 이 제약을 그대로 충돌 대상으로 쓴다(존재 여부를 먼저 조회하지 않는다 — DB가 원자적으로 처리). **[R1-e]** `choice`는 이 제약과 별개로 "논제당 answer 1개(작성자 무관)"까지 서버 액션(`upsertChoiceTopicAction`)이 애플리케이션 레벨에서 추가로 강제한다 — DB 유니크 제약은 여전히 "참여자당"이라 발제자 아닌 다른 참여자는 애초에 이 논제에 `answers` 행을 만들지 않는다.
 - `topic.kind === 'appendix'`인 경우: 새 게시물을 만들 때 `slot = coalesce(max(slot)+1, 0)`(같은 `topic_id, member_id` 안에서 계산)로 insert(`upsertAppendixAction`). 동시 제출 경합으로 unique 위반이 나면 slot을 재계산해 1회 재시도한다. 기존 글 수정은 `slot` 계산 없이 `answerId`+`member_id` 이중 조건으로 소유권을 재확인한 뒤 update한다(SECURITY.md 참고).
 
-CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권장): `kind='excerpt'` 또는 `kind='difficult'`인 answer는 `quote_text`가 비면 "미작성", `kind='free'`인 answer는 `body`가 비면 "미작성", **[R1]** `kind='choice'`인 answer는 `choice`가 `null`이면 "미작성"(근거 `body`는 무관 — 입장만 밝혀도 완료로 본다)으로 간주. `kind='appendix'`는 "미작성" 개념이 없다(있으면 목록에, 없으면 없음). 이 판정은 `lib/topics.ts`의 `isAnswerComplete()` 한 곳에 모은다.
+CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권장): `kind='excerpt'` 또는 `kind='difficult'`인 answer는 `quote_text`가 비면 "미작성", `kind='free'`인 answer는 `body`가 비면 "미작성". **[R1-e]** `kind='choice'`도 이제 `body`(게시물 본문) 기준으로 판정한다 — v1(R1-c1)의 "`choice`가 `null`이면 미작성" 규칙은 입장을 더 이상 `answers`에 두지 않으므로 폐기됐다. `kind='appendix'`는 "미작성" 개념이 없다(있으면 목록에, 없으면 없음). 이 판정은 `lib/topics.ts`의 `isAnswerComplete()` 한 곳에 모은다.
 
 ### replies
 
@@ -120,10 +120,11 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 | id | uuid | PK | |
 | answer_id | uuid | FK -> answers.id, not null, **ON DELETE CASCADE** | |
 | member_id | uuid | FK -> members.id, not null | |
-| body | text | not null | **[R1]** kind마다 UI 레이블이 다르다(컬럼/의미는 동일) — `excerpt` "사유 더하기"(유지), `difficult` "같이 생각해 보니", `free`/`choice`/`appendix` "의견 남기기". `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고. |
+| body | text | not null | **[R1]** kind마다 UI 레이블이 다르다(컬럼/의미는 동일) — `excerpt` "사유 더하기"(유지), `difficult` "같이 생각해 보니", `free`/`choice`/`appendix` "의견 남기기". `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고. **[R1-e]** `choice` reply는 근거가 선택 입력이라 빈 문자열(`""`)일 수 있다 — `not null` 제약은 유지하되 빈 문자열을 허용한다(다른 kind의 reply는 `upsertReplyAction`이 `body.trim()`이 비면 거부하므로 계속 비어 있을 수 없다). |
+| **choice** | text | null, **[R1-e 신규]** | choice 전용: 이 reply가 어느 입장(`topics.choice_options`의 값 중 하나)에 대한 반응인지. 다른 kind는 항상 null. `answer_id`+`member_id`로 "게시물당 참여자 1 reply"를 서버 액션(`upsertChoiceReplyAction`)이 upsert로 지킨다(DB 유니크 제약은 없음 — 일반 reply와 같은 테이블을 공유해서, 다른 kind의 "여러 번 의견 남기기"를 막지 않기 위해). 마이그레이션: `supabase/migrations/0004_choice_reply_tag.sql`(작성 시점 기준 미실행). |
 | created_at | timestamptz | not null default now() | |
 
-정책: 본인 answer 삭제 시 하위 replies도 CASCADE 삭제. 본인 answer에 본인이 reply 허용. **[R1]** `kind != 'excerpt'`면 reply 금지하던 제한이 **삭제**됐다 — 이제 5종 전부의 answer에 reply를 달 수 있다. 이 검사는 원래도 Server Action(`upsertReplyAction`)에서 했으므로(트리거 없음) 조건 분기를 바꾸는 것만으로 반영된다 — 스키마 변경 없음.
+정책: 본인 answer 삭제 시 하위 replies도 CASCADE 삭제. 본인 answer에 본인이 reply 허용. **[R1]** `kind != 'excerpt'`면 reply 금지하던 제한이 **삭제**됐다 — 이제 5종 전부의 answer에 reply를 달 수 있다. 이 검사는 원래도 Server Action(`upsertReplyAction`)에서 했으므로(트리거 없음) 조건 분기를 바꾸는 것만으로 반영된다 — 스키마 변경 없음. **[R1-e]** `choice`의 찬반 reply는 `upsertReplyAction`이 아니라 별도의 `upsertChoiceReplyAction`(choice 값 검증 + member 기준 upsert)이 처리한다.
 
 ### ratings / login_attempts / topic_templates
 
@@ -148,7 +149,7 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 | `free` | 참여자당 1개(`slot=0`), `body`만 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`title`/`choice`는 항상 null |
 | `excerpt` | 참여자당 1개(`slot=0`), `quote_text` + `quote_reason` 사용 | 모든 answer에 reply 가능, 레이블 **"사유 더하기"**(기존 유지) | `body`/`title`/`choice`는 사용 안 함 |
 | `difficult` | 참여자당 최대 1개(`slot=0`, 선택 참여). `quote_text`(힘든 구절)+`quote_reason`(그 이유, 입력 라벨 "저는 이리 생각했는데…") | 모든 answer에 reply 가능, 레이블 **"같이 생각해 보니"** — 단 모임일 KST 0시부터 | `body`/`title`/`choice`는 사용 안 함 |
-| `choice` | 참여자당 최대 1개(`slot=0`, 선택 참여). `choice`(입장, 즉시 저장) + `body`(근거, 선택 입력) | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`title`는 사용 안 함 |
+| `choice` | **[R1-e]** 논제당 최대 1개(`slot=0`) — 참여자 아무나가 아니라 **먼저 올린 사람(발제자)만**. `body`(게시물 본문)만 사용 | 그 1개 answer에 참여자 전원(발제자 포함)이 각자 1개씩 reply, 찬반은 `replies.choice` + 이유는 `replies.body`(선택 입력) | `quote_text`/`quote_reason`/`title`/`choice`는 사용 안 함(`choice` 컬럼은 R1-e부터 미사용, 아래 "choice 논제 상세" 참고) |
 | `appendix` | 참여자당 여러 개 허용(`slot=0,1,2,…`, 선택 참여, 제한 없음), `title`(짧은 제목, 선택) + `body`(본문) 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`choice`는 사용 안 함 |
 
 레이블 정책의 근거는 `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고 — 원문 표현이 있는 kind(`excerpt`/`difficult`)는 그대로 쓰고, 신규 유형(`free`/`choice`/`appendix`)만 일반화한 "의견 남기기"를 쓴다.
@@ -165,11 +166,14 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 - 이 게이팅과 `sessions.status === 'open'` 규칙은 **AND**로 결합한다 — 두 조건을 모두 만족해야 difficult 댓글을 쓸 수 있다(관리자도 예외 없음). 대신 관리자 화면이 `closed` 전환 직전 "댓글 없는 힘든 구절 N개" 경고를 띄운다(R1-c2 예정, REFACTOR_PLAN.md 4.10절). `DECISIONS.md`에 "다음 회차를 열기 전까지 이전 회차를 닫지 않는다"를 운영 원칙으로 기록.
 - 이관 파서로 과거 회차를 백필할 때는 이 게이트를 적용하지 않을 계획이다(R1-c2 예정, REFACTOR_PLAN.md 4.8절).
 
-## `choice` 논제 상세
+## `choice` 논제 상세 **[R1-e: 2단 구조로 전환, `docs/DECISIONS.md` "R1-e" 참고]**
 
-- 입장(`answers.choice`)은 `topics.choice_options`(기본 `{찬성,반대}`) 중 하나를 자유 텍스트로 저장한다. DB 레벨 CHECK/FK로 `choice_options` 원소인지 강제하지 않는다(관리자가 선택지를 바꾸면 기존 응답과 어긋나는 edge case를 다뤄야 해서, 참여자 규모에 비해 과설계).
-- 근거(`body`)는 선택 입력 — 입장만 밝히고 근거 없이도 완료로 간주한다(위 `isAnswerComplete` 절 참고).
-- 화면 동작(`ChoiceView`, `app/s/[id]/ChoiceView.tsx`)은 집계·진영별 근거 카드 나열이 핵심이며, "의견 남기기"는 각 근거 카드 아래 붙는다(카드가 없는, 즉 근거 없이 입장만 밝힌 경우는 "의견 남기기" 대상도 없음 — 근거 카드 자체가 안 생기므로).
+- **상태 1(게시물 없음)**: 참여자 누구나 "논제 올리기"로 게시물(구체적인 논제/장면, `answers.body`)을 올릴 수 있다 — 먼저 저장한 사람이 그 논제의 유일한 발제자가 된다. 이 상태에서는 찬반 버튼을 표시하지 않는다(투표 대상이 아직 없음).
+- **상태 2(게시물 1개)**: 그 게시물을 상단에 작성자와 함께 보여준다. 원 작성자만 수정할 수 있다(`upsertChoiceTopicAction`이 `answerId` 소유권을 확인). 다른 참여자가 새 게시물을 올리려 하면 서버가 거부한다(같은 액션이 `answerId`가 없을 때 해당 `topic_id`에 이미 `answers` 행이 있는지 먼저 확인).
+- 찬반 입장은 `topics.choice_options`(기본 `{찬성,반대}`) 중 하나를 자유 텍스트로 그 게시물에 대한 `replies.choice`에 저장한다(`upsertChoiceReplyAction`). DB 레벨 CHECK/FK로 `choice_options` 원소인지 강제하지 않지만(관리자가 선택지를 바꾸면 기존 응답과 어긋나는 edge case를 다뤄야 해서, 참여자 규모에 비해 과설계), 서버 액션이 매 호출마다 `topics.choice_options.includes(choice)`로 검증한다.
+- 이유(`replies.body`)는 선택 입력 — "나는 {선택지}" 버튼 클릭은 그 즉시 입장만 반영하고(별 저장 없음, 별점과 같은 패턴), 이유는 별도 "이유 남기기/수정" 편집기로 같은 reply 행에 채운다.
+- 한 사람당 한 게시물에 reply는 1개뿐이다 — `upsertChoiceReplyAction`이 `answer_id`+`member_id`로 기존 reply를 먼저 조회해 있으면 update, 없으면 insert한다.
+- 화면 동작(`app/s/[id]/ChoiceView.tsx`)은 게시물 아래 집계 막대 + 진영별 이유 카드 나열이 핵심이며, 이유가 있는 reply만 카드로 보인다.
 
 ## 인덱스 및 성능 메모
 

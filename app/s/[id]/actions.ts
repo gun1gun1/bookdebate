@@ -57,34 +57,138 @@ export async function upsertAnswerAction(
   return { ok: true };
 }
 
-// choice 전용 — "나는 {선택지}" 버튼이 즉시 호출한다(StarRating과 같은 패턴,
-// 별도 저장 버튼 없음). body/quote_text/quote_reason 키를 생략해 upsertAnswerAction이
-// 이미 저장해 둔 근거(body)를 건드리지 않는다.
-export async function upsertChoiceAction(topicId: string, choiceValue: string): Promise<ActionResult> {
+// choice 전용 — 이 논제의 "발제 게시물"(구체적인 논제/장면)을 올리거나 수정한다.
+// answerId가 없으면 새 게시물 시도: 이 논제에 이미 answer가 하나라도 있으면
+// (발제자가 이미 정해졌으므로) 거부한다 — 없으면 이 회차의 유일한 게시물이 되어,
+// 이후 이 topic_id로 들어오는 새 게시물 시도는 전부 이 분기에서 막힌다.
+// answerId가 있으면 수정: 원 작성자 본인 소유인지 확인한 뒤 body만 갱신한다.
+// 동시에 두 명이 "먼저 올리기"를 시도하는 경합은 이 존재-확인 조회와 insert
+// 사이에 짧은 창이 있어 이론상 남아 있다 — upsertAppendixAction의 slot 계산과
+// 같은 수준으로, 참여자 5~8명 규모의 저빈도 사용에서는 받아들이기로 했다.
+export async function upsertChoiceTopicAction(
+  topicId: string,
+  answerId: string | null,
+  body: string
+): Promise<ActionResult> {
   const session = await requireSession();
   const supabase = getSupabaseServerClient();
 
   const topic = await loadTopicWithSession(supabase, topicId);
-  if (!topic || !topic.session) return { ok: false, error: "논제를 찾을 수 없습니다." };
+  if (!topic || !topic.session || topic.kind !== "choice") {
+    return { ok: false, error: "논제를 찾을 수 없습니다." };
+  }
   if (topic.session.status !== "open") {
-    return { ok: false, error: "지금은 이 회차에 입장을 밝힐 수 없습니다." };
+    return { ok: false, error: "지금은 이 회차에 논제를 올릴 수 없습니다." };
   }
 
-  const { error } = await supabase.from("answers").upsert(
-    {
+  if (answerId) {
+    const { data: existing } = await supabase
+      .from("answers")
+      .select("id, member_id, topic_id")
+      .eq("id", answerId)
+      .maybeSingle();
+
+    if (!existing || existing.topic_id !== topicId) {
+      return { ok: false, error: "게시물을 찾을 수 없습니다." };
+    }
+    if (existing.member_id !== session.memberId) {
+      return { ok: false, error: "본인 게시물만 수정할 수 있습니다." };
+    }
+
+    const { error } = await supabase
+      .from("answers")
+      .update({ body, updated_at: new Date().toISOString() })
+      .eq("id", answerId);
+
+    if (error) return { ok: false, error: "저장하지 못했습니다." };
+  } else {
+    const { count } = await supabase
+      .from("answers")
+      .select("id", { count: "exact", head: true })
+      .eq("topic_id", topicId);
+
+    if ((count ?? 0) > 0) {
+      return { ok: false, error: "이미 다른 참여자가 논제를 올렸습니다." };
+    }
+
+    const { error } = await supabase.from("answers").insert({
       topic_id: topicId,
       member_id: session.memberId,
       slot: 0,
-      choice: choiceValue,
+      body,
       submitted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    },
-    { onConflict: "topic_id,member_id,slot" }
-  );
+    });
 
-  if (error) return { ok: false, error: "저장하지 못했습니다." };
+    if (error) return { ok: false, error: "저장하지 못했습니다." };
+  }
 
   revalidatePath(`/s/${topic.session_id}`);
+  revalidatePath("/");
+  revalidatePath("/me");
+  return { ok: true };
+}
+
+// choice 전용 — 발제 게시물 하나에 대한 찬반 반응. choice는 topics.choice_options
+// 안의 값이어야 하고(서버에서 검증), body(이유)는 선택 입력이다. 한 사람당 한
+// 게시물에는 reply가 하나뿐이어야 하므로 member_id로 기존 reply를 먼저 찾아
+// 있으면 update, 없으면 insert한다 — 별도 유니크 제약을 두는 대신(찬반 reply와
+// 일반 reply를 같은 replies 테이블이 공유하므로 answer_id+member_id 유니크를
+// 강제하면 다른 kind의 "여러 번 의견 남기기"를 막아버린다) 이 함수 안에서만
+// "한 명당 하나"를 지킨다.
+export async function upsertChoiceReplyAction(
+  answerId: string,
+  choiceValue: string,
+  body: string
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const supabase = getSupabaseServerClient();
+
+  const { data: answer } = await supabase
+    .from("answers")
+    .select("id, topic:topics(kind, choice_options, session_id, session:sessions(status))")
+    .eq("id", answerId)
+    .maybeSingle();
+
+  if (!answer || !answer.topic || !answer.topic.session) {
+    return { ok: false, error: "게시물을 찾을 수 없습니다." };
+  }
+  if (answer.topic.kind !== "choice") {
+    return { ok: false, error: "찬반 논제가 아닙니다." };
+  }
+  if (answer.topic.session.status !== "open") {
+    return { ok: false, error: "지금은 입장을 밝힐 수 없습니다." };
+  }
+  if (!answer.topic.choice_options.includes(choiceValue)) {
+    return { ok: false, error: "선택지가 올바르지 않습니다." };
+  }
+
+  const { data: existingReply } = await supabase
+    .from("replies")
+    .select("id")
+    .eq("answer_id", answerId)
+    .eq("member_id", session.memberId)
+    .maybeSingle();
+
+  const reasonBody = body.trim() || "";
+
+  if (existingReply) {
+    const { error } = await supabase
+      .from("replies")
+      .update({ choice: choiceValue, body: reasonBody })
+      .eq("id", existingReply.id);
+    if (error) return { ok: false, error: "저장하지 못했습니다." };
+  } else {
+    const { error } = await supabase.from("replies").insert({
+      answer_id: answerId,
+      member_id: session.memberId,
+      choice: choiceValue,
+      body: reasonBody,
+    });
+    if (error) return { ok: false, error: "저장하지 못했습니다." };
+  }
+
+  revalidatePath(`/s/${answer.topic.session_id}`);
   revalidatePath("/");
   return { ok: true };
 }

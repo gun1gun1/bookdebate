@@ -6,6 +6,7 @@ export type Reply = {
   id: string;
   member_id: string;
   body: string;
+  choice: string | null;
   created_at: string;
   member: { name: string } | null;
 };

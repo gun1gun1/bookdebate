@@ -298,4 +298,16 @@ Phase 1 착수 전 정해야 했던 데이터/정책 질문 6개에 사용자가
 
 **이유**: 새로 지은 이름이 아니다 — 참여자들이 매달 구글 문서 제목을 "내담리_독서논제_{책제목}" 형식으로 이미 써 왔다는 사실을 사용자가 확인해 줬다. 브랜딩 작업은 "새 이름을 도입"한 것이 아니라 "이미 쓰던 이름을 정식화"한 것에 가깝다 — RETENTION.md가 강조하는 "이 모임의 자리라는 정체성"을 화면에도 그대로 옮긴 것.
 
+### R1-e: `choice` 논제 2단 구조 전환 (2026-08-18)
+
+**결정**: `choice` 논제를 "참여자 전원이 각자 독립적으로 찬반을 고르는 평평한 투표" 구조에서 "한 사람(발제자)이 구체적인 논제/장면을 먼저 게시물로 올리고, 나머지 참여자들이 그 게시물에 찬반으로 반응하는" 2단 구조로 바꾼다. 발제자는 관리자가 미리 지정하지 않고 **먼저 게시물을 올리는 사람**이 된다 — 일단 게시물이 하나 생기면 그 논제엔 새 게시물을 더 만들 수 없고(서버에서 거부), 원 작성자만 그 게시물을 수정할 수 있다. 찬반 입장(`choice`)과 이유는 더 이상 `answers` 행이 아니라, 그 게시물(`answer`)에 대한 참여자별 `replies` 행 하나에 담는다 — `replies.choice`(신규, nullable) + 기존 `replies.body`(이유, 선택 입력) 조합. `answers.choice` 컬럼은 리네임·삭제하지 않고 그대로 둔다(사용만 중단) — 정리는 별도 턴.
+
+**이유**: 사용자가 실제 원본 구글 문서 구조를 다시 확인해 준 결과, `topics.body`의 안내문("책 속에서 누군가가 어떤 결정을 내리고 행동하는 부분을 찾아서…")은 투표 대상 자체가 아니라 **발제자가 무엇을 올려야 하는지에 대한 지시문**이었다 — R1-c1 시점에 이 구분을 놓치고 "안내문 아래 전원이 독립적으로 찬반 버튼을 누르는" 구조로 잘못 구현했다. 실사이트에서 아직 아무도 입장을 밝히지 않은 상태(`decided.length === 0`)로 확인돼 잃을 투표 데이터가 없었던 시점에 바로잡았다.
+
+**대안과 미채택 이유**:
+- 발제자를 관리자가 미리 `assigned_member_id`처럼 지정 — 매달 세팅 피로를 늘린다(RETENTION.md가 경계하는 실패 경로). "먼저 올리는 사람" 규칙은 별도 관리자 조작 없이 자연히 한 명으로 수렴한다.
+- 찬반 reply 전용 테이블 신설(구 `votes`처럼) — `replies`가 이미 "게시물 하나에 여러 참여자가 짧은 반응을 남기는" 정확히 같은 형태라, 컬럼 하나(`choice`, nullable) 추가로 충분하다. 일반 reply(`body`만 있고 `choice`는 null)와 찬반 reply가 같은 테이블을 공유하므로 `answer_id`+`member_id` 유니크 제약을 걸지 않고 서버 액션(`upsertChoiceReplyAction`) 안에서만 "게시물당 참여자 1 reply"를 지킨다 — 다른 kind의 "여러 번 의견 남기기"를 이 제약이 막지 않도록.
+
+**후속 조치**: `supabase/migrations/0004_choice_reply_tag.sql`(아직 미실행), `app/s/[id]/ChoiceView.tsx` 전면 재작성, `app/s/[id]/actions.ts`의 `upsertChoiceAction`(구 평평한 투표 저장)을 `upsertChoiceTopicAction`(게시물 작성/수정, 최초 1개 제약)과 `upsertChoiceReplyAction`(찬반 reply upsert)로 교체. `lib/topics.ts`의 `isAnswerComplete`와 `components/AnswerContent.tsx`의 `choice` 분기도 "answers 행 = 게시물 본문뿐"으로 바뀐 모델에 맞춰 정리(`answer.choice`를 더 이상 보지 않음 — `/me` 페이지에서 발제자 본인 게시물이 body 기준으로 정상 표시되도록). `docs/SCHEMA.md`/`docs/SPEC.md`의 `choice` 관련 서술은 이 결정 반영해 갱신했다 — `answers.choice` 컬럼 자체의 drop/리네임과 이관 파서(`importParser.ts`)의 `choice` 판정 확장(R1-c2 예정)은 아직 남아 있다.
+
 *(이후 Phase 종료 시, 최초 계획에서 실제로 바뀐 결정을 아래에 시간순으로 추가한다.)*

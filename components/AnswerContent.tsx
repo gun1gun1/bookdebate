@@ -58,21 +58,6 @@ export function AnswerContent({ kind, answer }: { kind: TopicKind; answer: Answe
     );
   }
 
-  if (kind === "choice") {
-    return (
-      <div className="max-w-[68ch]">
-        <p className="text-[16px] leading-[1.7]">나는 {answer!.choice}</p>
-        {answer!.body?.trim() ? (
-          <p className="mt-1 whitespace-pre-wrap text-[16px] leading-[1.7] text-gray-700">
-            {answer!.body}
-          </p>
-        ) : (
-          <p className="mt-1 text-sm text-gray-400">근거를 남기지 않았습니다</p>
-        )}
-      </div>
-    );
-  }
-
   if (kind === "appendix") {
     return (
       <div className="max-w-[68ch]">

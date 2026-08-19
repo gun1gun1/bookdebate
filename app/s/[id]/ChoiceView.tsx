@@ -2,16 +2,20 @@
 
 import { useState, useTransition } from "react";
 import { DeleteButton } from "@/components/DeleteButton";
-import { ReplyThread } from "@/components/ReplyThread";
 import { useEditorLock } from "./EditorLockContext";
-import { upsertAnswerAction, upsertChoiceAction, deleteAnswerAction } from "./actions";
-import type { Topic } from "./types";
+import { upsertChoiceTopicAction, upsertChoiceReplyAction, deleteAnswerAction, deleteReplyAction } from "./actions";
+import type { Answer, Topic } from "./types";
 
 const BAR_COLORS = ["bg-gray-900", "bg-gray-500", "bg-gray-300", "bg-gray-200"];
 
-// 선택 참여 — 입장(choice)은 버튼 클릭 즉시 저장(StarRating과 같은 패턴),
-// 근거(body)는 선택 입력. 아무도 입장을 밝히지 않으면 집계/진영 열 없이
-// 버튼만 보인다. 미작성자 회색 카드는 만들지 않는다(REFACTOR_PLAN.md 7절).
+// 선택 참여, 2단 구조(R1-e) — topics.body의 지시문에 따라 누구든 먼저 올리는
+// 사람이 이 논제의 유일한 게시물(구체적인 논제/장면)을 올린다. 게시물이 하나
+// 생기면 그 논제엔 더 이상 새 게시물을 만들 수 없고(서버에서 거부), 원
+// 작성자만 수정할 수 있다. 이후 참여자 전원(작성자 포함)이 그 게시물에 찬반
+// (topics.choice_options)으로 반응한다 — 입장(choice)과 이유(선택 입력)를
+// 같은 reply 한 행에 담는다(docs/DECISIONS.md "R1-e: choice 논제 2단 구조
+// 전환" 참고). 게시물이 없는 상태에서는 찬반 버튼을 절대 보여주지 않는다 —
+// 투표할 대상이 아직 없기 때문이다.
 export function ChoiceView({
   topic,
   currentMemberId,
@@ -23,69 +27,223 @@ export function ChoiceView({
   isAdmin: boolean;
   canWrite: boolean;
 }) {
+  // choice는 topic당 answer가 최대 1개여야 하는 게 이 논제의 전제다(서버 액션이
+  // 두 번째 게시물을 거부한다) — 그래도 배열이면 첫 번째 행을 그 하나로 다룬다.
+  const answer = topic.answers[0] ?? null;
+
+  if (!answer) {
+    return <ChoiceComposeView topic={topic} canWrite={canWrite} />;
+  }
+
+  return (
+    <ChoicePostView
+      topic={topic}
+      answer={answer}
+      currentMemberId={currentMemberId}
+      isAdmin={isAdmin}
+      canWrite={canWrite}
+    />
+  );
+}
+
+// 상태 1 — 아직 게시물이 없다. 본문 입력 폼만 보이고 찬반 버튼은 없다.
+function ChoiceComposeView({ topic, canWrite }: { topic: Topic; canWrite: boolean }) {
   const { openEditorKey, tryOpen, close } = useEditorLock();
   const editorKey = `answer:${topic.id}`;
-  const isEditingMine = openEditorKey === editorKey;
+  const isEditing = openEditorKey === editorKey;
 
-  const myAnswer = topic.answers.find((a) => a.member_id === currentMemberId) ?? null;
-  const [myChoice, setMyChoice] = useState<string | null>(myAnswer?.choice ?? null);
-  const [choicePending, startChoiceTransition] = useTransition();
+  const [text, setText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  if (!canWrite) {
+    return <p className="text-sm text-gray-400">아직 아무도 논제를 올리지 않았습니다</p>;
+  }
+
+  if (!isEditing) {
+    return (
+      <button
+        type="button"
+        onClick={() => tryOpen(editorKey)}
+        className="self-start rounded border border-gray-900 px-3 py-1 text-sm"
+      >
+        논제 올리기
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        placeholder="책 속에서 찬반이 갈릴 만한 구체적인 결정이나 장면을 소개해 주세요"
+        className="w-full max-w-[68ch] rounded border border-gray-300 p-2 text-[16px] leading-[1.7]"
+      />
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          disabled={isPending || !text.trim()}
+          onClick={() =>
+            startTransition(async () => {
+              setError(null);
+              const result = await upsertChoiceTopicAction(topic.id, null, text);
+              if (!result.ok) {
+                setError(result.error);
+                return;
+              }
+              close(editorKey);
+            })
+          }
+          className="rounded bg-gray-900 px-3 py-1 text-sm text-white disabled:opacity-50"
+        >
+          저장
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setText("");
+            close(editorKey);
+          }}
+          className="text-sm text-gray-500 hover:underline"
+        >
+          취소
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// 상태 2 — 게시물이 하나 있다. 상단에 게시물(원 작성자만 수정), 그 아래
+// 찬반 버튼 + 집계 막대, 맨 아래 진영별 이유 카드.
+function ChoicePostView({
+  topic,
+  answer,
+  currentMemberId,
+  isAdmin,
+  canWrite,
+}: {
+  topic: Topic;
+  answer: Answer;
+  currentMemberId: string;
+  isAdmin: boolean;
+  canWrite: boolean;
+}) {
+  const { openEditorKey, tryOpen, close } = useEditorLock();
+  const postEditorKey = `answer:${topic.id}`;
+  const reasonEditorKey = `reply:${answer.id}`;
+  const isEditingPost = openEditorKey === postEditorKey;
+  const isEditingReason = openEditorKey === reasonEditorKey;
+  const isAuthor = answer.member_id === currentMemberId;
 
   const options = topic.choice_options;
-  const decided = topic.answers.filter((a) => a.choice);
+  const myReply = answer.replies.find((r) => r.member_id === currentMemberId) ?? null;
+  const [myChoice, setMyChoice] = useState<string | null>(myReply?.choice ?? null);
+  const [choicePending, startChoiceTransition] = useTransition();
+
+  const decided = answer.replies.filter((r) => r.choice);
   const hasAnyChoice = decided.length > 0;
+  const countFor = (opt: string) => decided.filter((r) => r.choice === opt).length;
+  const namesFor = (opt: string) =>
+    decided
+      .filter((r) => r.choice === opt)
+      .map((r) => r.member?.name ?? "")
+      .filter(Boolean);
+  const reasonsFor = (opt: string) => decided.filter((r) => r.choice === opt && r.body.trim());
 
   function pick(option: string) {
     setMyChoice(option);
     startChoiceTransition(() => {
-      void upsertChoiceAction(topic.id, option);
+      void upsertChoiceReplyAction(answer.id, option, myReply?.body ?? "");
     });
   }
 
-  const countFor = (option: string) => decided.filter((a) => a.choice === option).length;
-  const namesFor = (option: string) =>
-    decided
-      .filter((a) => a.choice === option)
-      .map((a) => a.member?.name ?? "")
-      .filter(Boolean);
-  const answersFor = (option: string) => decided.filter((a) => a.choice === option);
-
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-2">
-        {options.map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            disabled={!canWrite || choicePending}
-            onClick={() => pick(opt)}
-            className={`rounded border px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
-              myChoice === opt
-                ? "border-gray-900 bg-gray-900 text-white"
-                : "border-gray-300 hover:border-gray-500"
-            }`}
-          >
-            나는 {opt}
-          </button>
-        ))}
+      <div className="border-l-2 border-gray-300 pl-4">
+        <p className="mb-1 text-xs font-semibold text-gray-500">
+          {answer.member?.name}
+          {isAuthor ? " (나)" : ""}
+        </p>
+
+        {isEditingPost ? (
+          <ChoicePostEditor
+            topicId={topic.id}
+            answerId={answer.id}
+            initialText={answer.body ?? ""}
+            onDone={() => close(postEditorKey)}
+            onCancel={() => close(postEditorKey)}
+          />
+        ) : (
+          <>
+            <p className="whitespace-pre-wrap text-[16px] leading-[1.7]">{answer.body}</p>
+            <div className="mt-2 flex items-center gap-3">
+              {isAuthor && canWrite && (
+                <button
+                  type="button"
+                  onClick={() => tryOpen(postEditorKey)}
+                  className="text-sm text-gray-700 hover:underline"
+                >
+                  수정
+                </button>
+              )}
+              {(isAuthor || isAdmin) && canWrite && (
+                <DeleteButton
+                  confirmLabel={
+                    answer.replies.length > 0
+                      ? `찬반 반응 ${answer.replies.length}개도 함께 삭제됩니다 · 정말 삭제`
+                      : "정말 삭제"
+                  }
+                  action={async () => {
+                    const result = await deleteAnswerAction(answer.id);
+                    return result.ok ? { ok: true } : { ok: false, error: result.error };
+                  }}
+                />
+              )}
+            </div>
+          </>
+        )}
       </div>
+
+      {canWrite && (
+        <div className="flex flex-wrap gap-2">
+          {options.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              disabled={choicePending}
+              onClick={() => pick(opt)}
+              className={`rounded border px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
+                myChoice === opt
+                  ? "border-gray-900 bg-gray-900 text-white"
+                  : "border-gray-300 hover:border-gray-500"
+              }`}
+            >
+              나는 {opt}
+            </button>
+          ))}
+        </div>
+      )}
 
       {myChoice && canWrite && (
         <div>
-          {isEditingMine ? (
-            <ReasonEditor
-              topicId={topic.id}
-              initialText={myAnswer?.body ?? ""}
-              onDone={() => close(editorKey)}
-              onCancel={() => close(editorKey)}
+          {isEditingReason ? (
+            <ChoiceReasonEditor
+              answerId={answer.id}
+              choice={myChoice}
+              initialText={myReply?.body ?? ""}
+              onDone={() => close(reasonEditorKey)}
+              onCancel={() => close(reasonEditorKey)}
             />
           ) : (
             <button
               type="button"
-              onClick={() => tryOpen(editorKey)}
+              onClick={() => tryOpen(reasonEditorKey)}
               className="text-sm text-gray-700 hover:underline"
             >
-              {myAnswer?.body?.trim() ? "근거 수정" : "근거 남기기"}
+              {myReply?.body?.trim() ? "이유 수정" : "이유 남기기"}
             </button>
           )}
         </div>
@@ -124,37 +282,20 @@ export function ChoiceView({
                 <p className="text-xs font-semibold text-gray-500">
                   {opt} ({countFor(opt)}명)
                 </p>
-                {answersFor(opt).map((answer) => {
-                  const isMe = answer.member_id === currentMemberId;
+                {reasonsFor(opt).map((reply) => {
+                  const isMe = reply.member_id === currentMemberId;
                   return (
-                    <div key={answer.id} className="rounded border border-gray-200 p-3">
+                    <div key={reply.id} className="rounded border border-gray-200 p-3">
                       <div className="mb-1 flex items-center justify-between">
                         <p className="text-xs font-semibold text-gray-500">
-                          {answer.member?.name}
+                          {reply.member?.name}
                           {isMe ? " (나)" : ""}
                         </p>
-                        {!isMe && isAdmin && canWrite && (
-                          <DeleteButton
-                            action={async () => {
-                              const result = await deleteAnswerAction(answer.id);
-                              return result.ok ? { ok: true } : { ok: false, error: result.error };
-                            }}
-                          />
+                        {(isMe || isAdmin) && canWrite && (
+                          <DeleteButton action={async () => deleteReplyAction(reply.id)} />
                         )}
                       </div>
-                      {answer.body?.trim() ? (
-                        <p className="whitespace-pre-wrap text-sm text-gray-700">{answer.body}</p>
-                      ) : (
-                        <p className="text-sm text-gray-400">근거를 남기지 않았습니다</p>
-                      )}
-                      <ReplyThread
-                        answerId={answer.id}
-                        replies={answer.replies}
-                        canWrite={canWrite}
-                        currentMemberId={currentMemberId}
-                        isAdmin={isAdmin}
-                        label="의견 남기기"
-                      />
+                      <p className="whitespace-pre-wrap text-sm text-gray-700">{reply.body}</p>
                     </div>
                   );
                 })}
@@ -167,13 +308,68 @@ export function ChoiceView({
   );
 }
 
-function ReasonEditor({
+function ChoicePostEditor({
   topicId,
+  answerId,
   initialText,
   onDone,
   onCancel,
 }: {
   topicId: string;
+  answerId: string;
+  initialText: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(initialText);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <div className="flex flex-col gap-2">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        className="w-full max-w-[68ch] rounded border border-gray-300 p-2 text-[16px] leading-[1.7]"
+      />
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          disabled={isPending || !text.trim()}
+          onClick={() =>
+            startTransition(async () => {
+              setError(null);
+              const result = await upsertChoiceTopicAction(topicId, answerId, text);
+              if (!result.ok) {
+                setError(result.error);
+                return;
+              }
+              onDone();
+            })
+          }
+          className="rounded bg-gray-900 px-3 py-1 text-sm text-white disabled:opacity-50"
+        >
+          저장
+        </button>
+        <button type="button" onClick={onCancel} className="text-sm text-gray-500 hover:underline">
+          취소
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ChoiceReasonEditor({
+  answerId,
+  choice,
+  initialText,
+  onDone,
+  onCancel,
+}: {
+  answerId: string;
+  choice: string;
   initialText: string;
   onDone: () => void;
   onCancel: () => void;
@@ -188,7 +384,7 @@ function ReasonEditor({
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={3}
-        placeholder="근거를 남겨 주세요(선택)"
+        placeholder="이유를 남겨 주세요(선택)"
         className="w-full max-w-[68ch] rounded border border-gray-300 p-2 text-[16px] leading-[1.7]"
       />
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -199,7 +395,7 @@ function ReasonEditor({
           onClick={() =>
             startTransition(async () => {
               setError(null);
-              const result = await upsertAnswerAction(topicId, { body: text });
+              const result = await upsertChoiceReplyAction(answerId, choice, text);
               if (!result.ok) {
                 setError(result.error);
                 return;

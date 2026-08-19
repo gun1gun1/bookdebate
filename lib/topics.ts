@@ -2,8 +2,10 @@ import type { TopicKind } from "@/lib/supabase/types";
 
 // docs/SCHEMA_R1_DRAFT.md: "미작성 판정 로직을 코드 여러 곳에 중복하지 말고
 // 한 곳에 모아둘 것" — 이 함수가 그 한 곳이다. excerpt/difficult는
-// quote_text, choice는 choice, appendix는 "미작성" 개념이 없어 항상 false,
-// 나머지(free)는 body가 비어있으면 미작성으로 본다.
+// quote_text, appendix는 "미작성" 개념이 없어 항상 false, 나머지(free/choice)는
+// body가 비어있으면 미작성으로 본다. choice의 answers 행은 R1-e부터 "발제
+// 게시물"(body) 하나뿐이다 — 찬반 입장은 더 이상 이 행에 없고 replies.choice에
+// 있으므로(docs/DECISIONS.md "R1-e" 참고) 여기서 answer.choice를 보지 않는다.
 export function isAnswerComplete(
   kind: TopicKind,
   answer:
@@ -13,7 +15,6 @@ export function isAnswerComplete(
 ): boolean {
   if (!answer) return false;
   if (kind === "excerpt" || kind === "difficult") return Boolean(answer.quote_text?.trim());
-  if (kind === "choice") return answer.choice != null && answer.choice !== "";
   if (kind === "appendix") return false;
   return Boolean(answer.body?.trim());
 }
