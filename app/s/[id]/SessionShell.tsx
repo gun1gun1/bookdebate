@@ -73,6 +73,7 @@ export function SessionShell({
                 isAdmin={isAdmin}
                 showRating={ratingTopic?.id === t.id}
                 myRating={myRating}
+                ratings={ratings}
               />
             ))}
           </div>

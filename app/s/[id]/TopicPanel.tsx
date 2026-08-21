@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { AnswerContent } from "@/components/AnswerContent";
 import { StarRating } from "@/components/StarRating";
+import { RatingSummary } from "@/components/RatingSummary";
 import { DeleteButton } from "@/components/DeleteButton";
 import { ReplyThread } from "@/components/ReplyThread";
 import { useEditorLock } from "./EditorLockContext";
@@ -10,7 +11,7 @@ import { upsertAnswerAction, deleteAnswerAction, upsertRatingAction } from "./ac
 import { DifficultView } from "./DifficultView";
 import { ChoiceView } from "./ChoiceView";
 import { AppendixView } from "./AppendixView";
-import type { Answer, Member, Topic } from "./types";
+import type { Answer, Member, Rating, Topic } from "./types";
 import type { SessionStatus } from "@/lib/supabase/types";
 
 export function TopicPanel({
@@ -23,6 +24,7 @@ export function TopicPanel({
   isAdmin,
   showRating,
   myRating,
+  ratings,
 }: {
   sessionId: string;
   sessionStatus: SessionStatus;
@@ -33,6 +35,7 @@ export function TopicPanel({
   isAdmin: boolean;
   showRating: boolean;
   myRating: number | null;
+  ratings: Rating[];
 }) {
   const canWrite = sessionStatus === "open";
   const myAnswer = topic.answers.find((a) => a.member_id === currentMemberId) ?? null;
@@ -45,6 +48,7 @@ export function TopicPanel({
       {showRating && (
         <div className="mt-3">
           <StarRating sessionId={sessionId} initialStars={myRating} action={upsertRatingAction} />
+          <RatingSummary members={members} ratings={ratings} currentMemberId={currentMemberId} />
         </div>
       )}
 
