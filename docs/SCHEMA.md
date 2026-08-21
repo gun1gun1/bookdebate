@@ -2,7 +2,7 @@
 
 독서토론 앱의 Postgres(Supabase) 스키마 명세. 실제 마이그레이션은 `supabase/migrations/`에 있다.
 
-**[R1]** `topics.kind`가 5종(`free`/`excerpt`/`difficult`/`choice`/`appendix`)으로 늘었고, `answers` 컬럼 리네임/추가 + `slot` 기반 유니크 전환, `votes` 테이블 제거가 있었다 — `supabase/migrations/0003_r1a_schema.sql`. **[R1-e]** `replies.choice` 컬럼 추가 — `supabase/migrations/0004_choice_reply_tag.sql`. **이 문서는 두 마이그레이션이 적용된 이후의 스키마를 기술하며, 프로덕션에도 둘 다 적용됐다.** 결정 배경(왜 `choice`를 정식 kind로 승격했는지, 왜 `slot` 설계를 택했는지 등)은 `docs/DECISIONS.md` "R1" 절 참고 — 이 문서는 "무엇"만 다룬다. `0003` 롤백 절차는 이 문서 맨 끝 "부록: R1-a 롤백 절차" 참고.
+**[R1]** `topics.kind`가 5종(`free`/`excerpt`/`difficult`/`choice`/`appendix`)으로 늘었고, `answers` 컬럼 리네임/추가 + `slot` 기반 유니크 전환, `votes` 테이블 제거가 있었다 — `supabase/migrations/0003_r1a_schema.sql`. **[R1-e]** `replies.choice` 컬럼 추가 — `supabase/migrations/0004_choice_reply_tag.sql`. **[R1-d]** R1-e부터 미사용이던 `answers.choice` 컬럼 drop — `supabase/migrations/0005_drop_answers_choice.sql`(**아직 프로덕션에 미적용 — 0003/0004와 달리 이 파일은 작성만 됐고 라이브 DB에 실행되지 않았다. 적용 전 이 문서의 answers 정의를 신뢰하려면 실제 라이브 스키마를 다시 확인할 것**). 결정 배경(왜 `choice`를 정식 kind로 승격했는지, 왜 `slot` 설계를 택했는지 등)은 `docs/DECISIONS.md` "R1" 절 참고 — 이 문서는 "무엇"만 다룬다. `0003` 롤백 절차는 이 문서 맨 끝 "부록: R1-a 롤백 절차" 참고.
 
 DB 접근 원칙(자세한 내용은 SECURITY.md 참고): 전 테이블 `ENABLE ROW LEVEL SECURITY`, 정책은 만들지 않는다(전면 거부). 모든 읽기/쓰기는 `lib/supabase/server.ts`의 service-role 클라이언트를 통해 Next.js 서버에서만 일어난다. **[R1에서도 변경 없음]** — `0003` 마이그레이션은 컬럼 추가/리네임과 `votes` drop만 하며 RLS 관련 statement는 포함하지 않는다.
 
@@ -101,7 +101,6 @@ members (1) ──< sessions.selector_member_id / host_member_id (역할)
 | **quote_text** | text | | **[R1] `excerpt_text`를 리네임.** excerpt: 발췌 원문 / difficult: 힘든 구절. 두 kind가 공유. |
 | **quote_reason** | text | | **[R1] `excerpt_reason`을 리네임.** excerpt: 고른 이유 / difficult: 그 이유(입력 라벨 "저는 이리 생각했는데…"). |
 | **title** | text | **[R1 신규]** | appendix 전용: 게시물 짧은 제목(선택). 다른 kind는 항상 null. |
-| **choice** | text | **[R1 신규, R1-e부터 미사용]** | v1(R1-c1) 시점엔 choice 전용: 이 사람이 고른 입장. **[R1-e]** choice가 발제자 게시물 + 찬반 reply 2단 구조로 바뀌면서 입장은 `replies.choice`로 옮겨갔다 — 이 컬럼은 리네임/삭제하지 않았지만 새 코드는 더 이상 쓰지 않는다(`docs/DECISIONS.md` "R1-e: choice 논제 2단 구조 전환" 참고, 정리는 별도 턴). 다른 kind는 계속 항상 null. |
 | **slot** | smallint | **[R1 신규] not null default 0** | appendix가 1인 다건을 가질 때 순번(0, 1, 2, …). 다른 kind는 항상 0. |
 | submitted_at | timestamptz | | |
 | updated_at | timestamptz | | |
@@ -146,11 +145,11 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 
 | kind | answers 사용 | replies 사용 | 특수 컬럼 |
 |---|---|---|---|
-| `free` | 참여자당 1개(`slot=0`), `body`만 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`title`/`choice`는 항상 null |
-| `excerpt` | 참여자당 1개(`slot=0`), `quote_text` + `quote_reason` 사용 | 모든 answer에 reply 가능, 레이블 **"사유 더하기"**(기존 유지) | `body`/`title`/`choice`는 사용 안 함 |
-| `difficult` | 참여자당 최대 1개(`slot=0`, 선택 참여). `quote_text`(힘든 구절)+`quote_reason`(그 이유, 입력 라벨 "저는 이리 생각했는데…") | 모든 answer에 reply 가능, 레이블 **"같이 생각해 보니"** — 단 모임일 KST 0시부터 | `body`/`title`/`choice`는 사용 안 함 |
-| `choice` | **[R1-e]** 논제당 최대 1개(`slot=0`) — 참여자 아무나가 아니라 **먼저 올린 사람(발제자)만**. `body`(게시물 본문)만 사용 | 그 1개 answer에 참여자 전원(발제자 포함)이 각자 1개씩 reply, 찬반은 `replies.choice` + 이유는 `replies.body`(선택 입력) | `quote_text`/`quote_reason`/`title`/`choice`는 사용 안 함(`choice` 컬럼은 R1-e부터 미사용, 아래 "choice 논제 상세" 참고) |
-| `appendix` | 참여자당 여러 개 허용(`slot=0,1,2,…`, 선택 참여, 제한 없음), `title`(짧은 제목, 선택) + `body`(본문) 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`choice`는 사용 안 함 |
+| `free` | 참여자당 1개(`slot=0`), `body`만 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`title`는 항상 null |
+| `excerpt` | 참여자당 1개(`slot=0`), `quote_text` + `quote_reason` 사용 | 모든 answer에 reply 가능, 레이블 **"사유 더하기"**(기존 유지) | `body`/`title`는 사용 안 함 |
+| `difficult` | 참여자당 최대 1개(`slot=0`, 선택 참여). `quote_text`(힘든 구절)+`quote_reason`(그 이유, 입력 라벨 "저는 이리 생각했는데…") | 모든 answer에 reply 가능, 레이블 **"같이 생각해 보니"** — 단 모임일 KST 0시부터 | `body`/`title`는 사용 안 함 |
+| `choice` | **[R1-e]** 논제당 최대 1개(`slot=0`) — 참여자 아무나가 아니라 **먼저 올린 사람(발제자)만**. `body`(게시물 본문)만 사용 | 그 1개 answer에 참여자 전원(발제자 포함)이 각자 1개씩 reply, 찬반은 `replies.choice` + 이유는 `replies.body`(선택 입력) | `quote_text`/`quote_reason`/`title`는 사용 안 함(찬반 입장은 `answers`가 아니라 `replies.choice`에 있다, 아래 "choice 논제 상세" 참고) |
+| `appendix` | 참여자당 여러 개 허용(`slot=0,1,2,…`, 선택 참여, 제한 없음), `title`(짧은 제목, 선택) + `body`(본문) 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`는 사용 안 함 |
 
 레이블 정책의 근거는 `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고 — 원문 표현이 있는 kind(`excerpt`/`difficult`)는 그대로 쓰고, 신규 유형(`free`/`choice`/`appendix`)만 일반화한 "의견 남기기"를 쓴다.
 
@@ -174,6 +173,7 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 - 이유(`replies.body`)는 선택 입력 — "나는 {선택지}" 버튼 클릭은 그 즉시 입장만 반영하고(별 저장 없음, 별점과 같은 패턴), 이유는 별도 "이유 남기기/수정" 편집기로 같은 reply 행에 채운다.
 - 한 사람당 한 게시물에 reply는 1개뿐이다 — `upsertChoiceReplyAction`이 `answer_id`+`member_id`로 기존 reply를 먼저 조회해 있으면 update, 없으면 insert한다.
 - 화면 동작(`app/s/[id]/ChoiceView.tsx`)은 게시물 아래 집계 막대 + 진영별 이유 카드 나열이 핵심이며, 이유가 있는 reply만 카드로 보인다.
+- **[R1-d]** R1-e가 미사용으로 남겨뒀던 `answers.choice` 컬럼은 `supabase/migrations/0005_drop_answers_choice.sql`로 drop했다 — 이 컬럼을 읽거나 쓰는 코드가 어디에도 없음을 확인한 뒤 진행(찬반 입장은 전부 `replies.choice`에 있다). 위 answers 테이블 정의에는 이미 반영됐다.
 
 ## 인덱스 및 성능 메모
 
@@ -212,8 +212,10 @@ alter table answers drop column slot;
 -- 내용이 있다면 이 시점에 전부 사라진다. 지우기 전에 반드시 백업:
 --   create table answers_backup_r1 as
 --   select id, title, choice from answers where title is not null or choice is not null;
+-- ⚠ [R1-d] 0005_drop_answers_choice.sql이 이미 적용됐다면 answers.choice는
+-- 이 시점에 이미 없다 — 아래 줄을 건너뛴다(이미 없는 컬럼을 drop하면 에러).
 alter table topics drop column choice_options;
-alter table answers drop column choice;
+alter table answers drop column choice; -- 0005 적용 전이면 실행, 적용 후면 스킵
 alter table answers drop column title;
 alter table replies drop column choice; -- 0004_choice_reply_tag.sql 롤백분
 

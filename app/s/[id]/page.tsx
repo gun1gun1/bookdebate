@@ -25,7 +25,7 @@ export default async function SessionDetailPage({
         topics(
           id, order_no, kind, title, body, has_rating, choice_options,
           answers(
-            id, member_id, body, quote_text, quote_reason, title, choice, slot, submitted_at,
+            id, member_id, body, quote_text, quote_reason, title, slot, submitted_at,
             member:members(name),
             replies(id, member_id, body, choice, created_at, member:members(name))
           )

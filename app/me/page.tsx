@@ -13,7 +13,7 @@ export default async function MePage() {
     .from("answers")
     .select(
       `
-      id, body, quote_text, quote_reason, title, choice,
+      id, body, quote_text, quote_reason, title,
       replies(id, body, member:members(name)),
       topic:topics(id, order_no, title, kind, session:sessions(id, meets_at, book:books(title)))
     `
@@ -24,10 +24,10 @@ export default async function MePage() {
     .from("replies")
     .select(
       `
-      id, body,
+      id, body, choice,
       answer:answers(
         member:members(name),
-        topic:topics(id, order_no, title, session:sessions(id, meets_at, book:books(title)))
+        topic:topics(id, order_no, title, kind, session:sessions(id, meets_at, book:books(title)))
       )
     `
     )
@@ -69,7 +69,15 @@ export default async function MePage() {
       topicTitle: r.answer.topic.title,
       node: (
         <p className="text-sm text-gray-700">
-          <span className="text-gray-400">→ {r.answer.member?.name}의 발췌에: </span>
+          <span className="text-gray-400">
+            {r.answer.topic.kind === "excerpt"
+              ? `→ ${r.answer.member?.name}의 발췌에 사유 더하기: `
+              : r.answer.topic.kind === "difficult"
+                ? `→ ${r.answer.member?.name}의 힘든 구절에 같이 생각해 보니: `
+                : r.answer.topic.kind === "choice"
+                  ? `→ 나는 ${r.choice}: `
+                  : `→ ${r.answer.member?.name}의 글에 의견: `}
+          </span>
           {r.body}
         </p>
       ),

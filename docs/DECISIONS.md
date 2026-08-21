@@ -310,4 +310,12 @@ Phase 1 착수 전 정해야 했던 데이터/정책 질문 6개에 사용자가
 
 **후속 조치**: `supabase/migrations/0004_choice_reply_tag.sql`(아직 미실행), `app/s/[id]/ChoiceView.tsx` 전면 재작성, `app/s/[id]/actions.ts`의 `upsertChoiceAction`(구 평평한 투표 저장)을 `upsertChoiceTopicAction`(게시물 작성/수정, 최초 1개 제약)과 `upsertChoiceReplyAction`(찬반 reply upsert)로 교체. `lib/topics.ts`의 `isAnswerComplete`와 `components/AnswerContent.tsx`의 `choice` 분기도 "answers 행 = 게시물 본문뿐"으로 바뀐 모델에 맞춰 정리(`answer.choice`를 더 이상 보지 않음 — `/me` 페이지에서 발제자 본인 게시물이 body 기준으로 정상 표시되도록). `docs/SCHEMA.md`/`docs/SPEC.md`의 `choice` 관련 서술은 이 결정 반영해 갱신했다 — `answers.choice` 컬럼 자체의 drop/리네임과 이관 파서(`importParser.ts`)의 `choice` 판정 확장(R1-c2 예정)은 아직 남아 있다.
 
+### R1-d: `answers.choice` 컬럼 drop + `/me` 페이지 reply 레이블 정리 (2026-08-21)
+
+**결정**: R1-e가 "정리는 별도 턴"으로 미뤄뒀던 `answers.choice`(위 R1-e 절 참고)를 이번 R1-d에서 실제로 drop한다 — `supabase/migrations/0005_drop_answers_choice.sql`. 코드 전역(`lib/supabase/types.ts`, `app/s/[id]/types.ts`, `app/s/[id]/page.tsx`, `app/page.tsx`, `app/me/page.tsx`, `components/AnswerContent.tsx`, `lib/topics.ts`)에서 이 컬럼을 참조하던 select 절/타입을 함께 제거했다. 아울러 `/me`("내가 쓴 글") 페이지가 reply를 나열할 때 kind와 무관하게 항상 `"→ {이름}의 발췌에: "`로 렌더링하던 걸 발견해 — R1이 reply를 5종 kind 전부로 확장했는데 이 문구는 `excerpt` 시절 그대로 남아 있었다 — kind별 레이블(`excerpt`="~의 발췌에 사유 더하기", `difficult`="~의 힘든 구절에 같이 생각해 보니", `choice`="나는 {입장}", 그 외="~의 글에 의견")로 갈라 고쳤다.
+
+**이유**: `answers.choice`는 R1-e 시점에 코드에서 완전히 손을 뗀 죽은 컬럼이었다(값을 쓰는 곳도, 읽는 곳도 없음 — 실제로 grep해서 확인). 죽은 컬럼을 스키마에 남겨두면 다음에 이 코드를 만지는 사람(Codex/Gemini CLI 포함)이 "이게 아직 쓰이는 건가"를 매번 다시 조사해야 한다. drop 전 실제 쓰기 경로가 하나도 없음을 코드 검색으로 재확인했고, 이 컬럼에 값이 쓰인 유일한 시기(R1-c1, 아무도 참여하지 않은 상태로 이미 확인됨)라 무손실이다. `/me` 페이지 문구는 별도 버그 리포트 없이 R1-d 정리 작업 중 코드를 훑다가 발견한 것 — R1이 "5종 kind 전부에 reply 허용"으로 결정한 이상, 그 reply들을 보여주는 화면도 5종 전부를 올바르게 반영해야 한다는 원칙(R1 전체의 취지)에서 벗어나 있었다.
+
+**주의**: `supabase/migrations/0005_drop_answers_choice.sql`은 이 턴에서 파일만 작성됐고, 0003/0004와 달리 **프로덕션 DB에는 아직 실행되지 않았다** — 적용은 사람이 직접 확인 후 진행할 것(`docs/SCHEMA.md` 상단 안내, "부록: R1-a 롤백 절차"의 관련 주의사항도 함께 갱신).
+
 *(이후 Phase 종료 시, 최초 계획에서 실제로 바뀐 결정을 아래에 시간순으로 추가한다.)*

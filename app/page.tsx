@@ -24,7 +24,7 @@ export default async function HomePage() {
     supabase
       .from("sessions")
       .select(
-        "id, meets_at, deadline_at, status, book:books(title, author, cover_url), topics(id, kind, answers(member_id, body, quote_text, choice))"
+        "id, meets_at, deadline_at, status, book:books(title, author, cover_url), topics(id, kind, answers(member_id, body, quote_text))"
       )
       .in("status", ["open", "closed"])
       .order("meets_at", { ascending: false }),

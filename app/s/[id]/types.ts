@@ -18,7 +18,6 @@ export type Answer = {
   quote_text: string | null;
   quote_reason: string | null;
   title: string | null;
-  choice: string | null;
   slot: number;
   submitted_at: string | null;
   member: { name: string } | null;

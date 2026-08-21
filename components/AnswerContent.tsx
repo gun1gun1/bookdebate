@@ -8,7 +8,6 @@ type Answer = {
   quote_text: string | null;
   quote_reason: string | null;
   title: string | null;
-  choice: string | null;
   replies?: ReplyItem[];
 } | null;
 
@@ -20,7 +19,6 @@ function isEmptyAnswer(kind: TopicKind, answer: Answer): boolean {
   return !isAnswerComplete(kind, {
     body: answer.body,
     quote_text: answer.quote_text,
-    choice: answer.choice,
   });
 }
 

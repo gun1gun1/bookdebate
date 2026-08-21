@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { BookCover } from "@/components/BookCover";
 import { ShareButton } from "@/components/ShareButton";
+import { isMandatoryKind } from "@/lib/topics";
 import type { Topic } from "./types";
 
 // 좌측 사이드바(책 정보/참여현황/논제 목차+스크롤스파이/공유버튼).
@@ -62,11 +63,22 @@ export function SessionSidebar({
           <a
             href={`#topic-${t.id}`}
             onClick={() => setTocOpen(false)}
-            className={`block truncate rounded px-2 py-1.5 text-sm ${
+            className={`flex items-center gap-1.5 rounded px-2 py-1.5 text-sm ${
               activeTopicId === t.id ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"
             }`}
           >
-            {t.order_no}. {t.title}
+            <span className="min-w-0 flex-1 truncate">
+              {t.order_no}. {t.title}
+            </span>
+            {!isMandatoryKind(t.kind) && (
+              <span
+                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
+                  activeTopicId === t.id ? "bg-gray-700 text-gray-200" : "bg-gray-100 text-gray-500"
+                }`}
+              >
+                선택
+              </span>
+            )}
           </a>
         </li>
       ))}

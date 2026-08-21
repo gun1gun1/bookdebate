@@ -143,7 +143,6 @@ export interface Database {
           quote_text: string | null;
           quote_reason: string | null;
           title: string | null;
-          choice: string | null;
           slot: number;
           submitted_at: string | null;
           updated_at: string | null;
@@ -156,7 +155,6 @@ export interface Database {
           quote_text?: string | null;
           quote_reason?: string | null;
           title?: string | null;
-          choice?: string | null;
           slot?: number;
           submitted_at?: string | null;
           updated_at?: string | null;

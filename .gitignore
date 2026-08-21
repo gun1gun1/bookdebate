@@ -43,3 +43,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ad-hoc screenshots for feedback, not app assets
+test image*.png

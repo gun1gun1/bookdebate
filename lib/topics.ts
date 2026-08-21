@@ -5,11 +5,11 @@ import type { TopicKind } from "@/lib/supabase/types";
 // quote_text, appendix는 "미작성" 개념이 없어 항상 false, 나머지(free/choice)는
 // body가 비어있으면 미작성으로 본다. choice의 answers 행은 R1-e부터 "발제
 // 게시물"(body) 하나뿐이다 — 찬반 입장은 더 이상 이 행에 없고 replies.choice에
-// 있으므로(docs/DECISIONS.md "R1-e" 참고) 여기서 answer.choice를 보지 않는다.
+// 있다(docs/DECISIONS.md "R1-e" 참고, answers.choice 컬럼 자체는 R1-d에서 drop).
 export function isAnswerComplete(
   kind: TopicKind,
   answer:
-    | { body: string | null; quote_text: string | null; choice: string | null }
+    | { body: string | null; quote_text: string | null }
     | null
     | undefined
 ): boolean {

@@ -78,7 +78,7 @@ answers/replies를 쓰는 모든 Server Action은 소유권 검사에 더해 아
 - [ ] `session.status !== 'open'`인 회차에 answer/reply 쓰기(생성·수정·삭제)를 시도하면 서버가 거부하는가 — `draft`, `closed` 양쪽 모두 확인.
 - [ ] **[R1] `topic.kind === 'difficult'`인 answer에 reply를 달 때, 모임 당일(KST) 이전 요청을 서버(`upsertReplyAction`)가 거부하는가** — `ReplyThread`의 `gate` prop을 우회해 액션을 직접 호출해도 막히는지가 핵심(클라이언트 표시만으로 막는 것은 인정하지 않음).
 - [ ] **[R1] `appendix` 수정 액션(`upsertAppendixAction`)이 `answerId`+`member_id` 이중 조건으로 소유권을 재확인하는가** — 다른 회원의 `answerId`를 넣어 요청해도 거부되는지 확인.
-- [ ] **[R1] `upsertChoiceAction`/`upsertAppendixAction`도 첫 줄에서 `requireSession()`을 호출하는가.**
+- [ ] **[R1-e 갱신] `upsertChoiceTopicAction`/`upsertChoiceReplyAction`/`upsertAppendixAction`도 첫 줄에서 `requireSession()`을 호출하는가** — `upsertChoiceAction`(v1 설계)은 R1-e에서 choice가 "발제 게시물+찬반 reply" 2단 구조로 바뀌며 이 두 함수로 대체됐다(`docs/DECISIONS.md` "R1-e" 참고). 2026-08-21 기준 `app/s/[id]/actions.ts` 확인 결과 셋 다 첫 줄에서 호출한다.
 - [ ] answer 삭제 시 하위 `replies`가 실제로 `ON DELETE CASCADE`로 함께 삭제되는가, 그리고 삭제 전 확인 모달에 하위 reply 개수가 표시되는가.
 - [ ] `/admin/*` 이하 모든 Server Action이 `requireAdmin()`을 첫 줄에서 호출하는가.
 - [ ] 빌드 산출물(`.next`)에 `SUPABASE_SERVICE_ROLE_KEY` 문자열이 없는가 — grep으로 실제 확인(`.next/static`처럼 브라우저로 나가는 디렉터리 기준으로 확인할 것 — 서버 전용 청크에는 당연히 남아 있다).
