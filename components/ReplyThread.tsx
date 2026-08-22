@@ -47,6 +47,7 @@ export function ReplyThread({
       {replies.map((reply) => (
         <ReplyRow
           key={reply.id}
+          answerId={answerId}
           reply={reply}
           isMine={reply.member_id === currentMemberId || isAdmin}
           canWrite={canWrite}
@@ -86,6 +87,7 @@ export function ReplyThread({
 }
 
 function ReplyRow({
+  answerId,
   reply,
   isMine,
   canWrite,
@@ -93,6 +95,7 @@ function ReplyRow({
   onEdit,
   onDone,
 }: {
+  answerId: string;
   reply: ReplyItem;
   isMine: boolean;
   canWrite: boolean;
@@ -121,7 +124,7 @@ function ReplyRow({
             onClick={() =>
               startTransition(async () => {
                 setError(null);
-                const result = await upsertReplyAction(reply.id, reply.id, text);
+                const result = await upsertReplyAction(answerId, reply.id, text);
                 if (!result.ok) {
                   setError(result.error);
                   return;

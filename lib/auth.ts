@@ -134,7 +134,13 @@ export async function requireSession(): Promise<Session> {
   return session;
 }
 
-/** requireSession()에 더해, DB에서 role을 다시 조회해 admin이 아니면 돌려보낸다. */
+/**
+ * requireSession()에 더해, DB에서 role을 다시 조회해 admin이 아니면 돌려보낸다.
+ * 안내 없이 "/"로 리다이렉트하면 권한이 없는 멤버 눈에는 "화면에 아무것도
+ * 안 보인다"는 원인 불명의 혼란으로 비친다(2026-08-22 실제 발생 — 당시
+ * admin이 수열 한 명뿐이었을 때 나머지 멤버가 이렇게 겪었다). 그래서
+ * 이유를 설명하는 /forbidden으로 보낸다 — docs/DECISIONS.md 참고.
+ */
 export async function requireAdmin(): Promise<Session> {
   const session = await requireSession();
 
@@ -146,7 +152,7 @@ export async function requireAdmin(): Promise<Session> {
     .maybeSingle();
 
   if (!member || member.role !== "admin") {
-    redirect("/");
+    redirect("/forbidden");
   }
 
   return session;

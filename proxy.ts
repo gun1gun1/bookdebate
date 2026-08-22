@@ -6,6 +6,10 @@ import { verifySessionToken } from "@/lib/auth";
 // 여부, 최신 role)은 각 Server Action의 requireSession()/requireAdmin()이
 // DB를 다시 조회해서 한다(2차 방어).
 //
+// /admin 권한 없음은 "/"가 아니라 "/forbidden"으로 보낸다 — 안내 없이
+// 홈으로 튕기면 권한 없는 사용자에게는 "화면이 안 보인다"는 원인 불명의
+// 혼란으로 비친다(lib/auth.ts의 requireAdmin() 주석, docs/DECISIONS.md 참고).
+//
 // Next.js 16부터 "middleware.ts" 파일 컨벤션은 deprecated이고 "proxy.ts" +
 // export된 proxy() 함수로 이름이 바뀌었다(docs/DECISIONS.md 참고).
 
@@ -19,7 +23,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (request.nextUrl.pathname.startsWith("/admin") && session.role !== "admin") {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/forbidden", request.url));
   }
 
   return NextResponse.next();
