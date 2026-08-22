@@ -53,7 +53,7 @@ export default async function SessionDetailPage({
       status={sessionRow.status}
       topics={topics}
       members={members ?? []}
-      ratings={sessionRow.ratings}
+      ratings={sessionRow.ratings.map((r) => ({ ...r, stars: Number(r.stars) }))}
       currentMemberId={session.memberId}
       isAdmin={session.role === "admin"}
     />

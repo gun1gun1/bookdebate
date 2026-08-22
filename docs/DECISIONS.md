@@ -328,4 +328,25 @@ Phase 1 착수 전 정해야 했던 데이터/정책 질문 6개에 사용자가
 
 **후속 조치**: `supabase/migrations/0006_all_members_admin.sql`(작성만 됨, 미실행), `app/forbidden/page.tsx`(신설), `lib/auth.ts`의 `requireAdmin()`, `proxy.ts`의 role 불일치 리다이렉트 대상. 헤더의 "관리자" 메뉴(`components/AppHeader.tsx`)는 이미 `session.role === 'admin'` 조건이라 마이그레이션 적용 후 별도 코드 변경 없이 전원에게 노출된다.
 
+### R1-f: 별점 0.5 단위 + choice 사전 작성 허용 + 발췌 다건 허용 + 논제 헤더 강화 (2026-08-22)
+
+**결정 1(별점 반점)**: `ratings.stars`를 `integer check(1~5)`에서 `numeric(2,1) check(0.5~5.0, 0.5 배수)`로 바꾼다(`supabase/migrations/0007_ratings_half_star.sql`, 미실행). `StarRating`은 별 하나를 좌/우 절반 클릭 영역으로 나눠 왼쪽=0.5, 오른쪽=1.0을 즉시 저장하고, 좌우 화살표 키로도 0.5 단위 조작이 가능하다. 별의 반쪽 채우기는 회색 별 위에 폭을 0/50/100%로 자른 금색 별을 겹치는 방식(`components/StarDisplay.tsx`)이며, `StarRating`(조작)과 `RatingSummary`(표시 전용) 양쪽이 이 컴포넌트를 공유한다.
+
+**결정 2(choice 사전 작성)**: choice 논제에 아직 "발제 게시물"이 없어도 각자 입장(찬반)과 이유를 먼저 적을 수 있게 한다. 구현은 새 테이블/컬럼 없이, 사전 작성이 처음 들어오는 순간 `answers` 행을 `body=null`인 "앵커"로 만들어(`upsertChoiceStanceAction`) 그 위에 기존 `replies.choice` 구조를 그대로 얹는 방식을 택했다. "게시물이 없다"의 판정 기준을 "answers 행이 없다"에서 "있어도 body가 비어 있다"로 바꿨고(`upsertChoiceTopicAction`), body가 비어 있는 동안은 앵커를 만든 사람이 누구든 상관없이 이후 처음 실제 게시물을 채우는 사람이 작성자(`member_id`)가 된다.
+
+**결정 2 대안과 미채택 이유**:
+- 새 테이블(`choice_drafts`) 신설 — 이번 턴은 "마이그레이션 하나"(별점)만 늘리기로 정해뒀고, 별도 테이블은 조인·정리 대상이 하나 더 느는 데 비해 앵커 방식으로 기존 스키마 안에서 완전히 해결되므로 이득이 없었다.
+- 클라이언트 로컬스토리지 임시 저장 — "미리 적은 내용이 사라지면 안 된다"는 요구를 기기/브라우저를 넘어 보장하지 못한다(참여자가 PC/모바일을 오가는 게 실제로 흔함).
+- 사전 작성자를 그 논제의 영구 "발제자"로 고정 — 단지 입장만 먼저 밝힌 사람이 이후 실제 장면 소개를 써야 할 책임이나, 다른 사람이 못 쓰게 막는 권한을 갖게 돼 부자연스럽다. body가 비어 있는 동안은 "아직 아무도 쓰지 않음" 상태로 열어 둬, 실제로 장면을 소개하는 사람이 자연히 작성자가 되게 했다(R1-e의 "먼저 올리는 사람이 발제자" 원칙과 같은 결).
+
+**결정 2 보완(빈 앵커를 채우는 경합 방지, 커밋 전 리뷰에서 발견)**: 처음 구현은 "body가 비어 있는지 SELECT로 확인 → update"였는데, 이 확인과 update 사이에 짧은 창이 있어 두 사람이 거의 동시에 "논제 올리기"를 누르면 둘 다 "비어 있다"고 읽고 둘 다 무조건 update를 실행해 나중에 커밋되는 쪽이 먼저 쓴 사람의 글을 조용히 덮어쓸 수 있었다(lost update). `upsertChoiceTopicAction`의 update에 `.is("body", null)` 조건을 걸어 원자적으로 처리하도록 고쳤다 — 이 조건 때문에 실제로 갱신된 행이 0개면(그 사이 다른 사람이 이미 채워 넣었다는 뜻) "이미 다른 참여자가 논제를 올렸습니다"로 실패 처리한다. 앵커 자체가 아예 없어 새로 insert하는 경합(서로 다른 member_id로 두 앵커가 생기는 경우)은 이 범위 밖으로, 기존에 받아들이기로 한 저빈도 위험 그대로 남겨뒀다.
+
+**결정 3(발췌 다건 허용)**: `excerpt` 논제도 `appendix`와 같은 slot 패턴으로 1인 다건을 허용한다(`upsertExcerptAction`, 신규 — 기존 `upsertAnswerAction`은 free/difficult 전용으로 좁혔다). UI는 내 발췌들을 쌓아 보여주고 그 아래 "발췌 추가하기" 버튼, 이어서 다른 참여자들의 발췌 순서(`TopicPanel.tsx`의 `ExcerptView`). difficult는 이번 결정 대상이 아니다 — 다건 허용 여부는 `docs/OPEN_QUESTIONS.md`에 남겨둔다.
+
+**결정 4(논제 헤더 강화)**: 논제 헤더에 kind 배지(`lib/topics.ts`의 `KIND_LABEL`, 브랜드색 `#F2CB66` 배경 — 구조 요소에만 브랜드색을 쓰는 기존 원칙 유지)와 "선택" 배지(사이드바 목차와 같은 표기)를 달고, 제목을 `text-2xl font-bold`로 키운 뒤 헤더 전체를 `border-b`로 답변 영역과 분리했다. 논제 사이 간격도 `gap-10`→`gap-14`로 넓혔다(`SessionShell.tsx`). "논제 5개가 다 비슷해 보인다"는 실사용 피드백에 대응한 것.
+
+**이유**: 세 기능 모두 실사용 피드백에서 나왔다 — 별점은 표현력 부족, choice는 게시물 대기가 참여를 막는 병목, 발췌는 여러 구절을 나누고 싶은데 1개로 막혀 있던 것, 헤더는 논제 구분이 안 되는 문제.
+
+**후속 조치**: `supabase/migrations/0007_ratings_half_star.sql`(0005/0006과 함께 실행 예정), `components/StarDisplay.tsx`(신설), `app/s/[id]/actions.ts`의 `upsertExcerptAction`/`upsertChoiceStanceAction`/`upsertChoiceReplyRow`(신규), `ChoiceView.tsx`/`TopicPanel.tsx`의 관련 화면 재작성.
+
 *(이후 Phase 종료 시, 최초 계획에서 실제로 바뀐 결정을 아래에 시간순으로 추가한다.)*

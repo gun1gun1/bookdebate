@@ -61,7 +61,7 @@ export function NewTopicForm({
       {kind === "choice" && (
         <input
           name="choice_options"
-          defaultValue="찬성,반대"
+          defaultValue="찬성,반대,모르겠다"
           placeholder="선택지(쉼표 구분)"
           className="min-w-[160px] rounded border border-gray-300 px-2 py-1"
         />

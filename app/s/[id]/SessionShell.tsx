@@ -60,7 +60,7 @@ export function SessionShell({
             totalCount={members.length}
           />
 
-          <div className="flex min-w-0 flex-1 flex-col gap-10">
+          <div className="flex min-w-0 flex-1 flex-col gap-14">
             {topics.map((t) => (
               <TopicPanel
                 key={t.id}

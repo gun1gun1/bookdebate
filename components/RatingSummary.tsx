@@ -4,6 +4,8 @@
 // 참여가 안 보인다"는 문제로 이어졌다 — 저장 로직은 원래도 회원별 독립
 // 행(ratings.session_id+member_id UNIQUE)이라 정상이었고, 이 컴포넌트가
 // 그 값을 보여주기만 하면 된다(새 쿼리/마이그레이션 불필요).
+import { StarDisplay } from "./StarDisplay";
+
 type Member = { id: string; name: string };
 type Rating = { member_id: string; stars: number };
 
@@ -43,8 +45,7 @@ export function RatingSummary({
               </span>
               {rating ? (
                 <span aria-label={`별점 ${rating.stars}`}>
-                  <span className="text-yellow-500">{"★".repeat(rating.stars)}</span>
-                  <span className="text-gray-300">{"★".repeat(5 - rating.stars)}</span>
+                  <StarDisplay value={rating.stars} size="sm" />
                 </span>
               ) : (
                 <span className="text-gray-400">아직 매기지 않음</span>

@@ -1,5 +1,15 @@
 import type { TopicKind } from "@/lib/supabase/types";
 
+// 논제 헤더 배지·이관 파서 힌트 등에서 공통으로 쓰는 kind 한글 표기.
+// 한 곳에서만 정의해 화면마다 표기가 갈리지 않도록 한다.
+export const KIND_LABEL: Record<TopicKind, string> = {
+  free: "자유",
+  excerpt: "발췌",
+  difficult: "힘든 구절",
+  choice: "찬반",
+  appendix: "부록",
+};
+
 // docs/SCHEMA.md: "미작성 판정 로직을 코드 여러 곳에 중복하지 말고
 // 한 곳에 모아둘 것" — 이 함수가 그 한 곳이다. excerpt/difficult는
 // quote_text, appendix는 "미작성" 개념이 없어 항상 false, 나머지(free/choice)는

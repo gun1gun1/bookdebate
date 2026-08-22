@@ -2,7 +2,7 @@
 
 독서토론 앱의 Postgres(Supabase) 스키마 명세. 실제 마이그레이션은 `supabase/migrations/`에 있다.
 
-**[R1]** `topics.kind`가 5종(`free`/`excerpt`/`difficult`/`choice`/`appendix`)으로 늘었고, `answers` 컬럼 리네임/추가 + `slot` 기반 유니크 전환, `votes` 테이블 제거가 있었다 — `supabase/migrations/0003_r1a_schema.sql`. **[R1-e]** `replies.choice` 컬럼 추가 — `supabase/migrations/0004_choice_reply_tag.sql`. **[R1-d]** R1-e부터 미사용이던 `answers.choice` 컬럼 drop — `supabase/migrations/0005_drop_answers_choice.sql`(**아직 프로덕션에 미적용 — 0003/0004와 달리 이 파일은 작성만 됐고 라이브 DB에 실행되지 않았다. 적용 전 이 문서의 answers 정의를 신뢰하려면 실제 라이브 스키마를 다시 확인할 것**). 결정 배경(왜 `choice`를 정식 kind로 승격했는지, 왜 `slot` 설계를 택했는지 등)은 `docs/DECISIONS.md` "R1" 절 참고 — 이 문서는 "무엇"만 다룬다. `0003` 롤백 절차는 이 문서 맨 끝 "부록: R1-a 롤백 절차" 참고.
+**[R1]** `topics.kind`가 5종(`free`/`excerpt`/`difficult`/`choice`/`appendix`)으로 늘었고, `answers` 컬럼 리네임/추가 + `slot` 기반 유니크 전환, `votes` 테이블 제거가 있었다 — `supabase/migrations/0003_r1a_schema.sql`. **[R1-e]** `replies.choice` 컬럼 추가 — `supabase/migrations/0004_choice_reply_tag.sql`. **[R1-d]** R1-e부터 미사용이던 `answers.choice` 컬럼 drop — `supabase/migrations/0005_drop_answers_choice.sql`. **[R1-f]** `ratings.stars`를 `integer`에서 `numeric(2,1)`(0.5 단위)로 변경 — `supabase/migrations/0007_ratings_half_star.sql`(`0006_all_members_admin.sql`은 role 통일 마이그레이션, R1-f와 무관). **이 세 마이그레이션(0005/0006/0007)은 전부 아직 프로덕션에 미적용 — 0003/0004와 달리 파일만 작성됐고 라이브 DB에 실행되지 않았다. 적용 전 이 문서의 정의를 신뢰하려면 실제 라이브 스키마를 다시 확인할 것**. 결정 배경(왜 `choice`를 정식 kind로 승격했는지, 왜 `slot` 설계를 택했는지 등)은 `docs/DECISIONS.md` "R1" 절 참고 — 이 문서는 "무엇"만 다룬다. `0003` 롤백 절차는 이 문서 맨 끝 "부록: R1-a 롤백 절차" 참고.
 
 DB 접근 원칙(자세한 내용은 SECURITY.md 참고): 전 테이블 `ENABLE ROW LEVEL SECURITY`, 정책은 만들지 않는다(전면 거부). 모든 읽기/쓰기는 `lib/supabase/server.ts`의 service-role 클라이언트를 통해 Next.js 서버에서만 일어난다. **[R1에서도 변경 없음]** — `0003` 마이그레이션은 컬럼 추가/리네임과 `votes` drop만 하며 RLS 관련 statement는 포함하지 않는다.
 
@@ -17,7 +17,7 @@ members (1) ──< sessions.selector_member_id / host_member_id (역할)
 
 - `sessions`는 `books`를 정확히 1권 참조한다(책 1권 = 회차 1개, 재독은 새 `books` 행 + 새 `sessions` 행으로 처리).
 - `topics`는 `sessions`에 속하고 `order_no`로 정렬된다. **[R1]** `kind`가 5종(`free`/`excerpt`/`difficult`/`choice`/`appendix`)으로 늘었다 — 이전에는 3종(`choice`는 스키마만 존재, 전용 UI 없음).
-- **[R1]** `answers`는 이전에 `(topic_id, member_id)`가 유니크했지만(DB 제약), R1부터는 **`slot` 컬럼이 추가되어 `(topic_id, member_id, slot)`이 유니크**하다. `free`/`excerpt`/`difficult`/`choice`는 항상 `slot = 0`(즉 이전과 동일하게 1인 1답변이 DB 레벨에서 계속 강제된다), `appendix`만 한 사람이 여러 `slot`(0, 1, 2, …)을 가질 수 있다.
+- **[R1]** `answers`는 이전에 `(topic_id, member_id)`가 유니크했지만(DB 제약), R1부터는 **`slot` 컬럼이 추가되어 `(topic_id, member_id, slot)`이 유니크**하다. `free`/`difficult`/`choice`는 항상 `slot = 0`(즉 이전과 동일하게 1인 1답변이 DB 레벨에서 계속 강제된다), `appendix`는 한 사람이 여러 `slot`(0, 1, 2, …)을 가질 수 있다. **[R1-f]** `excerpt`도 `appendix`와 같은 방식으로 다건이 허용된다(`upsertExcerptAction`) — `difficult`만 아직 `slot=0` 단건으로 남아 있다(`docs/OPEN_QUESTIONS.md` 14번).
 - `replies`는 `topic`이 아니라 `answer`에 달린다. **[R1]** 이전에는 `kind = 'excerpt'`인 answer에만 reply를 달 수 있었지만, R1부터는 **모든 kind의 answer에 reply를 달 수 있다.** UI 레이블은 kind마다 다르다(하나로 통일하지 않는다) — `excerpt`는 "사유 더하기"(기존 유지), `difficult`는 "같이 생각해 보니"(모임 당일 KST 0시 이후로 게이트 적용), `free`/`choice`/`appendix`는 "의견 남기기"(신규 유형이라 일반화한 문구). 자세한 근거는 `DECISIONS.md` "R1: 논제 유형별 reply 레이블 정책" 참고.
 - `ratings`는 논제 1번 화면에 붙어 있지만 실제로는 `session_id` 단위. **[R1에서도 변경 없음]**
 - **[R1]** `votes` 테이블은 **제거**됐다. 입장(`choice`)과 근거(`body`)를 `answers` 한 행에 합쳐서 쓴다 — v1까지는 `choice` 논제 전용 집계 테이블로 존재했으나, 실제로 쓰지 않은 채(0행) `choice`가 정식 kind로 승격되면서 역할이 `answers.choice`로 흡수됐다.
@@ -127,7 +127,7 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 
 ### ratings / login_attempts / topic_templates
 
-**[R1에서 변경 없음]** — 원본과 동일.
+**[R1-f]** `ratings.stars`가 `integer check(between 1 and 5)`에서 `numeric(2,1) check(stars >= 0.5 and stars <= 5.0 and (stars*10) % 5 = 0)`로 바뀌어 0.5 단위 반점을 허용한다 — `supabase/migrations/0007_ratings_half_star.sql`. 기존 정수 값은 캐스팅으로 무손실 보존된다. `login_attempts`/`topic_templates`는 원본과 동일.
 
 ### votes — **[R1: 테이블 제거]**
 
@@ -146,7 +146,7 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 | kind | answers 사용 | replies 사용 | 특수 컬럼 |
 |---|---|---|---|
 | `free` | 참여자당 1개(`slot=0`), `body`만 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`/`title`는 항상 null |
-| `excerpt` | 참여자당 1개(`slot=0`), `quote_text` + `quote_reason` 사용 | 모든 answer에 reply 가능, 레이블 **"사유 더하기"**(기존 유지) | `body`/`title`는 사용 안 함 |
+| `excerpt` | **[R1-f]** 참여자당 여러 개 허용(`slot=0,1,2,…`, `upsertExcerptAction`), `quote_text` + `quote_reason` 사용 | 모든 answer에 reply 가능, 레이블 **"사유 더하기"**(기존 유지) | `body`/`title`는 사용 안 함 |
 | `difficult` | 참여자당 최대 1개(`slot=0`, 선택 참여). `quote_text`(힘든 구절)+`quote_reason`(그 이유, 입력 라벨 "저는 이리 생각했는데…") | 모든 answer에 reply 가능, 레이블 **"같이 생각해 보니"** — 단 모임일 KST 0시부터 | `body`/`title`는 사용 안 함 |
 | `choice` | **[R1-e]** 논제당 최대 1개(`slot=0`) — 참여자 아무나가 아니라 **먼저 올린 사람(발제자)만**. `body`(게시물 본문)만 사용 | 그 1개 answer에 참여자 전원(발제자 포함)이 각자 1개씩 reply, 찬반은 `replies.choice` + 이유는 `replies.body`(선택 입력) | `quote_text`/`quote_reason`/`title`는 사용 안 함(찬반 입장은 `answers`가 아니라 `replies.choice`에 있다, 아래 "choice 논제 상세" 참고) |
 | `appendix` | 참여자당 여러 개 허용(`slot=0,1,2,…`, 선택 참여, 제한 없음), `title`(짧은 제목, 선택) + `body`(본문) 사용 | 모든 answer에 reply 가능, 레이블 **"의견 남기기"** | `quote_text`/`quote_reason`는 사용 안 함 |
@@ -167,8 +167,8 @@ CHECK 제약(애플리케이션 레벨과 별개로 DB에도 두는 것을 권�
 
 ## `choice` 논제 상세 **[R1-e: 2단 구조로 전환, `docs/DECISIONS.md` "R1-e" 참고]**
 
-- **상태 1(게시물 없음)**: 참여자 누구나 "논제 올리기"로 게시물(구체적인 논제/장면, `answers.body`)을 올릴 수 있다 — 먼저 저장한 사람이 그 논제의 유일한 발제자가 된다. 이 상태에서는 찬반 버튼을 표시하지 않는다(투표 대상이 아직 없음).
-- **상태 2(게시물 1개)**: 그 게시물을 상단에 작성자와 함께 보여준다. 원 작성자만 수정할 수 있다(`upsertChoiceTopicAction`이 `answerId` 소유권을 확인). 다른 참여자가 새 게시물을 올리려 하면 서버가 거부한다(같은 액션이 `answerId`가 없을 때 해당 `topic_id`에 이미 `answers` 행이 있는지 먼저 확인).
+- **상태 1(answers 행 없음)**: 참여자 누구나 "논제 올리기"로 게시물(구체적인 논제/장면, `answers.body`)을 올릴 수 있다. **[R1-f]** 게시물이 없어도 각자 입장(찬반)만 먼저 밝힐 수 있다 — 그 순간 `body=null`인 "앵커" `answers` 행이 생긴다(`upsertChoiceStanceAction`). "게시물이 아직 없다"의 실제 판정 기준은 "answers 행이 없다"가 아니라 "**있어도 `body`가 비어 있다**"이다.
+- **상태 2(answers 행 1개, body 있음/없음 모두)**: 그 행을 상단에 보여준다. `body`가 비어 있으면(사전 입장만 있는 앵커) "아직 논제 게시물이 없습니다" 안내와 함께 누구든 canWrite면 처음 채워 넣을 수 있고, 그 순간 채운 사람이 작성자(`member_id`)로 확정된다. `body`가 이미 채워져 있으면 원 작성자만 수정할 수 있다(`upsertChoiceTopicAction`이 소유권을 확인). 어느 경우든 새로운 별도 게시물/앵커를 더 만들 수는 없다(같은 액션이 해당 `topic_id`에 이미 `answers` 행이 있는지 먼저 확인, 있으면 insert 대신 그 행을 재사용).
 - 찬반 입장은 `topics.choice_options`(기본 `{찬성,반대}`) 중 하나를 자유 텍스트로 그 게시물에 대한 `replies.choice`에 저장한다(`upsertChoiceReplyAction`). DB 레벨 CHECK/FK로 `choice_options` 원소인지 강제하지 않지만(관리자가 선택지를 바꾸면 기존 응답과 어긋나는 edge case를 다뤄야 해서, 참여자 규모에 비해 과설계), 서버 액션이 매 호출마다 `topics.choice_options.includes(choice)`로 검증한다.
 - 이유(`replies.body`)는 선택 입력 — "나는 {선택지}" 버튼 클릭은 그 즉시 입장만 반영하고(별 저장 없음, 별점과 같은 패턴), 이유는 별도 "이유 남기기/수정" 편집기로 같은 reply 행에 채운다.
 - 한 사람당 한 게시물에 reply는 1개뿐이다 — `upsertChoiceReplyAction`이 `answer_id`+`member_id`로 기존 reply를 먼저 조회해 있으면 update, 없으면 insert한다.

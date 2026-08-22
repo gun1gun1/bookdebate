@@ -7,10 +7,11 @@ import { RatingSummary } from "@/components/RatingSummary";
 import { DeleteButton } from "@/components/DeleteButton";
 import { ReplyThread } from "@/components/ReplyThread";
 import { useEditorLock } from "./EditorLockContext";
-import { upsertAnswerAction, deleteAnswerAction, upsertRatingAction } from "./actions";
+import { upsertAnswerAction, upsertExcerptAction, deleteAnswerAction, upsertRatingAction } from "./actions";
 import { DifficultView } from "./DifficultView";
 import { ChoiceView } from "./ChoiceView";
 import { AppendixView } from "./AppendixView";
+import { KIND_LABEL, isMandatoryKind } from "@/lib/topics";
 import type { Answer, Member, Rating, Topic } from "./types";
 import type { SessionStatus } from "@/lib/supabase/types";
 
@@ -42,8 +43,18 @@ export function TopicPanel({
 
   return (
     <div id={`topic-${topic.id}`} className="scroll-mt-6">
-      <h2 className="text-lg font-semibold">{topic.title}</h2>
-      {topic.body && <p className="mt-1 max-w-[68ch] text-sm text-gray-600">{topic.body}</p>}
+      <div className="mb-6 border-b border-gray-200 pb-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded bg-[#F2CB66] px-2 py-0.5 text-xs font-semibold text-gray-900">
+            {KIND_LABEL[topic.kind]}
+          </span>
+          {!isMandatoryKind(topic.kind) && (
+            <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500">선택</span>
+          )}
+        </div>
+        <h2 className="mt-2 text-2xl font-bold tracking-tight text-gray-900">{topic.title}</h2>
+        {topic.body && <p className="mt-1 max-w-[68ch] text-sm text-gray-600">{topic.body}</p>}
+      </div>
 
       {showRating && (
         <div className="mt-3">
@@ -68,7 +79,6 @@ export function TopicPanel({
             currentMemberId={currentMemberId}
             isAdmin={isAdmin}
             canWrite={canWrite}
-            myAnswer={myAnswer}
           />
         ) : topic.kind === "difficult" ? (
           <DifficultView
@@ -253,96 +263,83 @@ function FreeView({
   );
 }
 
+const NEW_EXCERPT = "new";
+
+// R1-f(발췌 다건 허용) — 1인 다건, appendix의 slot 패턴을 그대로 따른다
+// (AppendixView 참고). 내 발췌들을 먼저 쌓아 보여주고 그 아래 "발췌
+// 추가하기"(하나도 없으면 "내 발췌 추가하기") 버튼, 그다음 다른 참여자들의
+// 발췌 순서로 렌더링한다. 편집기는 topic당 하나만 열리도록 공용
+// EditorLockContext 키(answer:{topicId})를 공유하고, 신규 작성인지 기존
+// 발췌 수정인지는 로컬 상태(editingTarget)로 구분한다(AppendixView와 동일
+// 패턴).
 function ExcerptView({
   topic,
   currentMemberId,
   isAdmin,
   canWrite,
-  myAnswer,
 }: {
   topic: Topic;
   currentMemberId: string;
   isAdmin: boolean;
   canWrite: boolean;
-  myAnswer: Answer | null;
 }) {
   const { openEditorKey, tryOpen, close } = useEditorLock();
-  const answerEditorKey = `answer:${topic.id}`;
-  const isEditingMine = openEditorKey === answerEditorKey;
+  const editorKey = `answer:${topic.id}`;
+  const isEditorOpen = openEditorKey === editorKey;
+  const [editingTarget, setEditingTarget] = useState<string | null>(null);
 
-  const answersWithContent = topic.answers.filter((a) => a.quote_text?.trim());
-  const ordered = [
-    ...(myAnswer ? [myAnswer] : []),
-    ...answersWithContent.filter((a) => a.id !== myAnswer?.id),
-  ];
+  const myAnswers = topic.answers
+    .filter((a) => a.member_id === currentMemberId)
+    .sort((a, b) => a.slot - b.slot);
+  const othersWithContent = topic.answers.filter(
+    (a) => a.member_id !== currentMemberId && a.quote_text?.trim()
+  );
+
+  function openNew() {
+    if (!tryOpen(editorKey)) return;
+    setEditingTarget(NEW_EXCERPT);
+  }
+
+  function openEdit(answerId: string) {
+    if (!tryOpen(editorKey)) return;
+    setEditingTarget(answerId);
+  }
+
+  function closeEditor() {
+    close(editorKey);
+    setEditingTarget(null);
+  }
 
   return (
     <div className="flex flex-col gap-8">
-      {!myAnswer && canWrite && !isEditingMine && (
-        <button
-          type="button"
-          onClick={() => tryOpen(answerEditorKey)}
-          className="self-start rounded border border-gray-900 px-3 py-1 text-sm"
-        >
-          내 발췌 추가하기
-        </button>
-      )}
-
-      {!myAnswer && isEditingMine && (
-        <ExcerptEditor
-          topicId={topic.id}
-          initialText=""
-          initialReason=""
-          onDone={() => close(answerEditorKey)}
-          onCancel={() => close(answerEditorKey)}
-        />
-      )}
-
-      {ordered.map((answer) => {
-        const isMe = answer.member_id === currentMemberId;
-        const isEditingThis = isMe && isEditingMine;
+      {myAnswers.map((answer) => {
+        const isEditingThis = isEditorOpen && editingTarget === answer.id;
 
         return (
-          <div key={answer.id} className="border-b border-gray-100 pb-6 last:border-none">
-            <p className="mb-1 text-xs font-semibold text-gray-500">
-              {answer.member?.name}{isMe ? " (나)" : ""}
-            </p>
+          <div key={answer.id} className="border-b border-gray-100 pb-6">
+            <p className="mb-1 text-xs font-semibold text-gray-500">{answer.member?.name} (나)</p>
 
             {isEditingThis ? (
               <ExcerptEditor
                 topicId={topic.id}
+                answerId={answer.id}
                 initialText={answer.quote_text ?? ""}
                 initialReason={answer.quote_reason ?? ""}
-                onDone={() => close(answerEditorKey)}
-                onCancel={() => close(answerEditorKey)}
+                onDone={closeEditor}
+                onCancel={closeEditor}
               />
             ) : (
               <>
                 <AnswerContent kind="excerpt" answer={answer} />
-                {isMe && canWrite && (
+                {canWrite && (
                   <div className="mt-2 flex items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => tryOpen(answerEditorKey)}
+                      onClick={() => openEdit(answer.id)}
                       className="text-sm text-gray-700 hover:underline"
                     >
                       수정
                     </button>
-                    <DeleteButton
-                      confirmLabel={
-                        answer.replies.length > 0
-                          ? `사유더하기 ${answer.replies.length}개도 함께 삭제됩니다 · 정말 삭제`
-                          : "정말 삭제"
-                      }
-                      action={async () => {
-                        const result = await deleteAnswerAction(answer.id);
-                        return result.ok ? { ok: true } : { ok: false, error: result.error };
-                      }}
-                    />
-                  </div>
-                )}
-                {!isMe && isAdmin && canWrite && (
-                  <div className="mt-2">
                     <DeleteButton
                       confirmLabel={
                         answer.replies.length > 0
@@ -370,18 +367,78 @@ function ExcerptView({
           </div>
         );
       })}
+
+      {isEditorOpen && editingTarget === NEW_EXCERPT && (
+        <div className="border-b border-gray-100 pb-6">
+          <ExcerptEditor
+            topicId={topic.id}
+            answerId={null}
+            initialText=""
+            initialReason=""
+            onDone={closeEditor}
+            onCancel={closeEditor}
+          />
+        </div>
+      )}
+
+      {canWrite && !(isEditorOpen && editingTarget === NEW_EXCERPT) && (
+        <button
+          type="button"
+          onClick={openNew}
+          className="self-start rounded border border-gray-900 px-3 py-1 text-sm"
+        >
+          {myAnswers.length === 0 ? "내 발췌 추가하기" : "발췌 추가하기"}
+        </button>
+      )}
+
+      {othersWithContent.map((answer, i) => (
+        <div
+          key={answer.id}
+          className={`border-b border-gray-100 pb-6 ${i === othersWithContent.length - 1 ? "border-none" : ""}`}
+        >
+          <p className="mb-1 text-xs font-semibold text-gray-500">{answer.member?.name}</p>
+
+          <AnswerContent kind="excerpt" answer={answer} />
+          {isAdmin && canWrite && (
+            <div className="mt-2">
+              <DeleteButton
+                confirmLabel={
+                  answer.replies.length > 0
+                    ? `사유더하기 ${answer.replies.length}개도 함께 삭제됩니다 · 정말 삭제`
+                    : "정말 삭제"
+                }
+                action={async () => {
+                  const result = await deleteAnswerAction(answer.id);
+                  return result.ok ? { ok: true } : { ok: false, error: result.error };
+                }}
+              />
+            </div>
+          )}
+
+          <ReplyThread
+            answerId={answer.id}
+            replies={answer.replies}
+            canWrite={canWrite}
+            currentMemberId={currentMemberId}
+            isAdmin={isAdmin}
+            label="사유 더하기"
+          />
+        </div>
+      ))}
     </div>
   );
 }
 
 function ExcerptEditor({
   topicId,
+  answerId,
   initialText,
   initialReason,
   onDone,
   onCancel,
 }: {
   topicId: string;
+  answerId: string | null;
   initialText: string;
   initialReason: string;
   onDone: () => void;
@@ -412,11 +469,11 @@ function ExcerptEditor({
       <div className="flex items-center gap-3">
         <button
           type="button"
-          disabled={isPending}
+          disabled={isPending || !text.trim()}
           onClick={() =>
             startTransition(async () => {
               setError(null);
-              const result = await upsertAnswerAction(topicId, {
+              const result = await upsertExcerptAction(topicId, answerId, {
                 quoteText: text,
                 quoteReason: reason,
               });
