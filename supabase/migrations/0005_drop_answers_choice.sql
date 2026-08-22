@@ -11,6 +11,8 @@
 -- 코드가 없다 — upsertAnswerAction/upsertChoiceTopicAction 모두 payload에서
 -- 이 키를 생략한다). 롤백은 nullable 컬럼을 다시 추가하면 되고, 그 시점엔
 -- 어차피 이 컬럼을 읽는 코드가 없으므로 값 손실을 신경 쓸 대상도 없다.
+--
+-- 적용됨(2026-08-22, 프로덕션 DB에 실행 완료 — answers.choice 컬럼 없음 확인됨).
 
 begin;
 

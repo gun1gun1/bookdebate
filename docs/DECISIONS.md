@@ -349,4 +349,12 @@ Phase 1 착수 전 정해야 했던 데이터/정책 질문 6개에 사용자가
 
 **후속 조치**: `supabase/migrations/0007_ratings_half_star.sql`(0005/0006과 함께 실행 예정), `components/StarDisplay.tsx`(신설), `app/s/[id]/actions.ts`의 `upsertExcerptAction`/`upsertChoiceStanceAction`/`upsertChoiceReplyRow`(신규), `ChoiceView.tsx`/`TopicPanel.tsx`의 관련 화면 재작성.
 
+### 마이그레이션 0005~0007 프로덕션 적용 확인 (2026-08-22)
+
+**결정**: 위 R1-d("`answers.choice` 컬럼 drop")·"전원 관리자 권한 부여"·R1-f(별점 반점) 세 절이 각각 "작성만 됨, 미실행"으로 남겨뒀던 `supabase/migrations/0005_drop_answers_choice.sql`/`0006_all_members_admin.sql`/`0007_ratings_half_star.sql`을 사용자가 실제 프로덕션 DB에 적용했다. Supabase MCP로 라이브 스키마를 직접 조회해 확인함: `ratings.stars`가 `numeric`이고 0.5 단위 CHECK 제약이 걸려 있음, `answers.choice` 컬럼이 없음, `members.role` 전원 `admin`(기본값도 `admin`), `replies.choice` 존재. 세 마이그레이션 모두 의도대로 적용됐다.
+
+**이유**: 사용자가 R1-f로 추가된 화면(반점 별점, choice 사전 작성, 발췌 다건, 논제 헤더 배지)을 실제로 써보고 "잘 된다"고 확인했다 — 이 시점의 라이브 DB가 세 마이그레이션 전부를 반영한 상태라는 뜻이므로, 이 문서와 `docs/SCHEMA.md`가 계속 "미적용"으로 서술하면 다음에 이 저장소를 여는 사람(Codex/Gemini CLI 포함)이 실제로는 끝난 일을 다시 확인하거나 재실행을 시도하는 혼란이 생긴다.
+
+**후속 조치**: `supabase/migrations/0005~0007` 각 파일 헤더의 "실행 시점" 주석을 "적용됨(2026-08-22, 프로덕션 DB에 실행 완료)"으로 갱신. `docs/SCHEMA.md` 상단 안내에서 "0005/0006/0007 미적용" 문구 제거. 위 각 절의 본문 서술 자체는 그 시점 기준 사실이었으므로 고치지 않는다(append-only 원칙) — 최신 상태는 이 절을 따를 것.
+
 *(이후 Phase 종료 시, 최초 계획에서 실제로 바뀐 결정을 아래에 시간순으로 추가한다.)*

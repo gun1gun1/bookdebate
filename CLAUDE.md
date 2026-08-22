@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 프로젝트 현재 상태
 
-Phase 0~5(스펙 문서화 → 스캐폴딩/스키마/시드 → 인증 → 관리자 화면 → 참여자 화면 → 배포 준비)가 모두 끝났고, 실제로 Vercel에 배포되어 쓰이고 있다(https://bookdebate.vercel.app). 그 위에 R1 개편(레이아웃 전면 개편, 논제 5종 `free`/`excerpt`/`difficult`/`choice`/`appendix` 정식 구현, "내담리" 브랜딩)도 R1-b/R1-a/R1-c(R1-c1 화면·저장, R1-e choice 2단 구조 전환, R1-c2 이관 파서 확장·닫기 경고)까지 끝났고, `docs/REFACTOR_PLAN.md`의 **R1-d**(구 코드/문서 잔재 정리, `SECURITY.md` 체크리스트 재확인, 시드 데이터에 5논제 반영 등 배포 전 최종 점검)도 2026-08-21 기준 거의 끝났다 — 남은 건 `supabase/migrations/0005_drop_answers_choice.sql`(작성만 됨)을 실제 프로덕션 DB에 적용하는 것뿐이다. `docs/` 아래에 아래 문서들이 있으니, 작업 전에 관련된 것을 먼저 읽어라 — 이 CLAUDE.md는 요약이지 대체가 아니다.
+Phase 0~5(스펙 문서화 → 스캐폴딩/스키마/시드 → 인증 → 관리자 화면 → 참여자 화면 → 배포 준비)가 모두 끝났고, 실제로 Vercel에 배포되어 쓰이고 있다(https://bookdebate.vercel.app). 그 위에 R1 개편(레이아웃 전면 개편, 논제 5종 `free`/`excerpt`/`difficult`/`choice`/`appendix` 정식 구현, "내담리" 브랜딩)이 R1-a~R1-e를 거쳐 R1-d(구 코드/문서 잔재 정리)까지 끝났고, 그 위에 실사용 피드백을 반영한 **R1-f**(별점 0.5 단위, choice 사전 작성 허용, 발췌 1인 다건 허용, 논제 헤더 강화)도 끝났다. `supabase/migrations/0001~0007` 전부 프로덕션 DB에 적용 완료됨(2026-08-22, Supabase MCP로 라이브 스키마 직접 조회해 재확인 — `docs/DECISIONS.md` "마이그레이션 0005~0007 프로덕션 적용 확인" 절 참고). `docs/` 아래에 아래 문서들이 있으니, 작업 전에 관련된 것을 먼저 읽어라 — 이 CLAUDE.md는 요약이지 대체가 아니다.
 
 - `docs/SPEC.md` — 화면, 기능, 사용자 흐름, 상태 전이
 - `docs/SCHEMA.md` — 테이블 정의, 관계, `topics.kind`에 따른 answers/replies 사용 방식, R1-a 마이그레이션 롤백 절차
 - `docs/SECURITY.md` — 권한 매트릭스, 서버 측 필수 검증 체크리스트
 - `docs/DECISIONS.md` — 결정과 이유, 채택하지 않은 대안 (진행 중 바뀐 결정은 여기 계속 추가되는 append-only 로그 — 과거 항목은 고치지 말고 새 항목을 더할 것)
 - `docs/RETENTION.md` — 이 앱이 계속 쓰이게 만드는 장치와 근거
-- `docs/OPEN_QUESTIONS.md` — 아직 정해지지 않은 운영/UI 정책 질문들(7~13번). 데이터/정책 관련 1~6번은 이미 답이 정해져 DECISIONS.md로 옮겨졌다.
-- `docs/REFACTOR_PLAN.md` — R1 개편 계획과 단계별 진행 현황(R1-b/a/c 완료, R1-d 남음)
+- `docs/OPEN_QUESTIONS.md` — 아직 정해지지 않은 운영/UI 정책 질문들(7~14번). 데이터/정책 관련 1~6번은 이미 답이 정해져 DECISIONS.md로 옮겨졌다.
+- `docs/REFACTOR_PLAN.md` — R1 개편 계획과 단계별 진행 현황(R1-a~R1-e 완료). R1-f 이후의 실사용 피드백 반영은 REFACTOR_PLAN.md 범위 밖이라 DECISIONS.md에만 기록한다.
 
 원본 기획 문서 `독서토론앱.md`는 Phase 0~5의 실제 프롬프트 블록을 담고 있는 계획서로, 지금은 과거 이력 참고용으로 유효하다.
 
