@@ -9,9 +9,11 @@ type Step = "password" | "name" | "pin";
 export function LoginForm({ requirePin }: { requirePin: boolean }) {
   const [step, setStep] = useState<Step>("password");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -64,14 +66,23 @@ export function LoginForm({ requirePin }: { requirePin: boolean }) {
         <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm">
             공통 암호
-            <input
-              type="password"
-              autoFocus
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="rounded border border-gray-300 px-3 py-2"
-              required
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                autoFocus
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded border border-gray-300 px-3 py-2 pr-16"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-900"
+              >
+                {showPassword ? "숨김" : "표시"}
+              </button>
+            </div>
           </label>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button
@@ -108,16 +119,25 @@ export function LoginForm({ requirePin }: { requirePin: boolean }) {
         <form onSubmit={handlePinSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm">
             PIN 4자리
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
-              autoFocus
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              className="rounded border border-gray-300 px-3 py-2"
-              required
-            />
+            <div className="relative">
+              <input
+                type={showPin ? "text" : "password"}
+                inputMode="numeric"
+                maxLength={4}
+                autoFocus
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                className="w-full rounded border border-gray-300 px-3 py-2 pr-16"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPin((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-900"
+              >
+                {showPin ? "숨김" : "표시"}
+              </button>
+            </div>
           </label>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button
