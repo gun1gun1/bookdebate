@@ -21,7 +21,7 @@ export function NewSessionForm({
   const [deadlineAt, setDeadlineAt] = useState("");
   const [selectorMemberId, setSelectorMemberId] = useState("");
   const [hostMemberId, setHostMemberId] = useState("");
-  const [sourceType, setSourceType] = useState<TopicSource["type"]>("none");
+  const [sourceType, setSourceType] = useState<TopicSource["type"]>("default");
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
   const [cloneSessionId, setCloneSessionId] = useState(sessions[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +34,9 @@ export function NewSessionForm({
         setError(null);
 
         const topicSource: TopicSource =
-          sourceType === "template"
+          sourceType === "default"
+            ? { type: "default" }
+            : sourceType === "template"
             ? { type: "template", templateId }
             : sourceType === "clone"
               ? { type: "clone", sourceSessionId: cloneSessionId }
@@ -88,6 +90,10 @@ export function NewSessionForm({
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <span className="text-gray-500">논제:</span>
         <label className="flex items-center gap-1">
+          <input type="radio" checked={sourceType === "default"} onChange={() => setSourceType("default")} />
+          기본 5논제(허삼관매혈기 형식)
+        </label>
+        <label className="flex items-center gap-1">
           <input type="radio" checked={sourceType === "none"} onChange={() => setSourceType("none")} />
           비워두기
         </label>
@@ -118,6 +124,12 @@ export function NewSessionForm({
           </select>
         )}
       </div>
+
+      {sourceType === "default" && (
+        <p className="text-xs text-gray-500">
+          요약·별점 / 발췌 / 힘든 구절 / 찬반 / 부록 5개가 만들어지고, 책 제목과 선정자 이름은 자동으로 들어갑니다. 만든 뒤 논제 화면에서 고치거나 지울 수 있어요.
+        </p>
+      )}
 
       <div className="flex items-center gap-3">
         <button type="submit" disabled={isPending} className="rounded bg-gray-900 px-3 py-1 text-white disabled:opacity-50">

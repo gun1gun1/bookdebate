@@ -15,6 +15,69 @@ export type TopicSpec = {
   hasRating: boolean;
 };
 
+/**
+ * 새 회차의 기본 논제 구성. 실제로 쓰인 「허삼관매혈기」 회차(2026-08-22)의
+ * 5논제 구조를 그대로 옮겼다. 그 회차를 그냥 복제하면 "희진님께", "『허삼관매혈기』"
+ * 같은 회차 고유 문구가 따라오므로, 책 제목과 선정자 이름은 대상 회차에서 읽어
+ * 채운다. 선정자가 아직 없으면 "선정하신 분께"로 둔다 — 관리자가 논제 화면에서
+ * 고치면 된다. docs/DECISIONS.md "새 회차 기본 논제 자동 생성" 참고.
+ */
+export async function defaultTopicSpecs(sessionId: string): Promise<TopicSpec[]> {
+  const supabase = getSupabaseServerClient();
+  const { data: session } = await supabase
+    .from("sessions")
+    .select("book:books(title), selector:members!sessions_selector_member_id_fkey(name)")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  const bookTitle = session?.book?.title ?? "이 책";
+  const selector = session?.selector?.name ? `${session.selector.name}님` : "분";
+
+  return [
+    {
+      orderNo: 1,
+      kind: "free",
+      title: `책을 소개하는 한 문장 요약. 책을 선정하신 ${selector}께 부탁드립니다.`,
+      body: `『${bookTitle}』, 어떻게 보셨나요? 별점과 소감을 나눠주세요.`,
+      assignedRole: "selector",
+      hasRating: true,
+    },
+    {
+      orderNo: 2,
+      kind: "excerpt",
+      title: "인상 깊게 읽은 부분이나 발췌가 있다면 이유와 함께 소개해 주세요.",
+      body: "다른 분들은 거기에 자신의 사유를 더해 봅니다.",
+      assignedRole: null,
+      hasRating: false,
+    },
+    {
+      orderNo: 3,
+      kind: "difficult",
+      title: "책에서 이해가 힘든 구절이 있었다면 함께 공유해서 이야기 나눠보려고 합니다.",
+      body: null,
+      assignedRole: null,
+      hasRating: false,
+    },
+    {
+      orderNo: 4,
+      kind: "choice",
+      title:
+        "책 속에서 누군가가 어떤 결정을 내리고 행동하는 부분에서 ‘나라도 그렇게 하겠다.’, ‘나라면 그렇게 하지 않겠다.’ 하는 부분을 찾아서 함께 이야기 나눠 보려고 합니다.",
+      body: null,
+      assignedRole: null,
+      hasRating: false,
+    },
+    {
+      orderNo: 5,
+      kind: "appendix",
+      title: "부록논제",
+      body: null,
+      assignedRole: null,
+      hasRating: false,
+    },
+  ];
+}
+
 export async function topicSpecsFromTemplate(
   templateId: string
 ): Promise<TopicSpec[]> {

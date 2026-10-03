@@ -8,12 +8,14 @@ import type { SessionStatus } from "@/lib/supabase/types";
 import { isPostMeetingOpen } from "@/lib/topics";
 import {
   applyTopicSpecs,
+  defaultTopicSpecs,
   topicSpecsFromSession,
   topicSpecsFromTemplate,
 } from "@/lib/admin/topics";
 
 export type TopicSource =
   | { type: "none" }
+  | { type: "default" }
   | { type: "template"; templateId: string }
   | { type: "clone"; sourceSessionId: string };
 
@@ -49,7 +51,9 @@ export async function createSessionAction(input: {
     return { ok: false, error: "회차를 만들지 못했습니다." };
   }
 
-  if (input.topicSource.type === "template") {
+  if (input.topicSource.type === "default") {
+    await applyTopicSpecs(session.id, await defaultTopicSpecs(session.id));
+  } else if (input.topicSource.type === "template") {
     const specs = await topicSpecsFromTemplate(input.topicSource.templateId);
     await applyTopicSpecs(session.id, specs);
   } else if (input.topicSource.type === "clone") {

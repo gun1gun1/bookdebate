@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { TopicKind } from "@/lib/supabase/types";
+import { applyTopicSpecs, defaultTopicSpecs } from "@/lib/admin/topics";
 
 function parseTopicForm(formData: FormData) {
   const rawChoiceOptions = String(formData.get("choice_options") ?? "").trim();
@@ -43,6 +44,22 @@ export async function createTopicAction(sessionId: string, formData: FormData) {
     ...(input.choiceOptions ? { choice_options: input.choiceOptions } : {}),
   });
 
+  revalidatePath(`/admin/sessions/${sessionId}/topics`);
+}
+
+// 논제가 하나도 없는 회차에 기본 5논제를 채운다(lib/admin/topics.ts
+// defaultTopicSpecs). 이미 논제가 있으면 order_no가 겹치므로 아무것도 하지 않는다.
+export async function applyDefaultTopicsAction(sessionId: string) {
+  await requireAdmin();
+
+  const supabase = getSupabaseServerClient();
+  const { count } = await supabase
+    .from("topics")
+    .select("id", { count: "exact", head: true })
+    .eq("session_id", sessionId);
+  if ((count ?? 0) > 0) return;
+
+  await applyTopicSpecs(sessionId, await defaultTopicSpecs(sessionId));
   revalidatePath(`/admin/sessions/${sessionId}/topics`);
 }
 
