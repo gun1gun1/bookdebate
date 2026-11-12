@@ -181,7 +181,9 @@ export async function verifySitePassword(
     throw new Error("SITE_PASSWORD_HASH 환경변수가 설정되지 않았다.");
   }
 
-  const valid = await bcrypt.compare(password, hash);
+  // 메모/카톡에서 복사해 붙여넣을 때 앞뒤 공백·줄바꿈이 딸려 와 맞는 암호가
+  // 거부되는 일이 실제로 있었다 — 공통 암호는 숫자라 앞뒤 공백을 지워도 안전하다.
+  const valid = await bcrypt.compare(password.trim(), hash);
   await recordLoginAttempt(ip, valid);
 
   if (!valid) {
