@@ -139,18 +139,17 @@ export async function upsertExcerptAction(
   return { ok: true };
 }
 
-// choice 전용 — 이 논제의 "발제 게시물"(구체적인 논제/장면)을 올리거나 수정한다.
-// R1-f(사전 작성 허용)부터는 게시물이 없어도 누구든 먼저 입장(찬반)만 미리
-// 적을 수 있고, 그 순간 answers 행이 body=null인 "앵커"로 생긴다(replies가
-// 붙을 자리가 필요해서 — upsertChoiceStanceAction 참고). 그래서 여기서
-// "게시물이 없다"는 더 이상 "answers 행이 없다"가 아니라 "있어도 body가
-// 비어 있다"로 판정한다: body가 비어 있으면 아직 아무도 실제 게시물(장면
-// 소개)을 쓰지 않은 것이므로, 그 앵커를 처음 채우는 사람이 누구든(앵커를
-// 만든 사람과 달라도) 게시물 작성자가 된다(member_id를 그 사람으로 갱신).
-// body가 이미 채워져 있으면 원래대로 그 작성자만 수정할 수 있다.
-// answerId가 없는 "새로 올리기" 호출도 같은 규칙을 따른다 — 이미 앵커가
-// 있으면 insert 대신 update로 그 행을 채운다(같은 topic에 answers 행이
-// 두 개 생기지 않도록).
+// choice 전용 — 찬반 "발제 게시물"(구체적인 논제/장면)을 올리거나 수정한다.
+// 다건 허용(2026-11) — 한 choice 논제 아래 여러 참여자가 각자 게시물을
+// 올릴 수 있고 한 사람이 여러 개를 올려도 된다. appendix/excerpt와 같은
+// 패턴: answerId가 없으면 새 게시물(slot = 본인 기존 최대값+1), 있으면 그
+// 게시물을 수정한다. 찬반 반응(replies.choice)은 게시물마다 따로 받는다.
+//
+// R1-f(사전 작성 허용) 시절 만들어진 body=null "앵커" 행이 남아 있을 수
+// 있다(그 위에 사전 입장 replies가 붙어 있음). 다건 허용 이후로는 새 앵커를
+// 만들지 않지만, 기존 앵커는 여전히 누구든 처음 채우는 사람이 작성자가
+// 된다(member_id를 그 사람으로 갱신). body가 이미 채워져 있으면 그
+// 작성자만 수정할 수 있다.
 //
 // 빈 앵커를 채우는 update는 반드시 `.is("body", null)`로 원자적으로 조건을
 // 걸어야 한다 — "body가 비었는지 확인하는 SELECT"와 "채우는 UPDATE" 사이에
@@ -161,10 +160,6 @@ export async function upsertExcerptAction(
 // 바꿨는지 확인해, 이미 다른 사람이 그 사이 채워 넣었다면(0행 갱신) 이
 // 호출은 "이미 다른 참여자가 논제를 올렸습니다"로 실패 처리한다 — 늦게
 // 도착한 쪽의 글은 버려지고, 먼저 커밋된 쪽만 유지된다.
-// 앵커 자체가 하나도 없어 새로 insert하는 경합(두 사람이 각각 다른
-// member_id로 새 행을 만드는 경우)은 이 함수 범위 밖의 별개 문제로, 참여자
-// 5~8명 규모의 저빈도 사용에서 받아들이기로 한 기존 위험이다
-// (upsertAppendixAction의 slot 계산과 같은 수준).
 export async function upsertChoiceTopicAction(
   topicId: string,
   answerId: string | null,
@@ -181,41 +176,48 @@ export async function upsertChoiceTopicAction(
     return { ok: false, error: "지금은 이 회차에 논제를 올릴 수 없습니다." };
   }
 
-  let target: { id: string; member_id: string; body: string | null } | null = null;
-  if (answerId) {
-    const { data } = await supabase
-      .from("answers")
-      .select("id, member_id, topic_id, body")
-      .eq("id", answerId)
-      .maybeSingle();
-    if (!data || data.topic_id !== topicId) {
-      return { ok: false, error: "게시물을 찾을 수 없습니다." };
-    }
-    target = data;
-  } else {
-    const { data } = await supabase
-      .from("answers")
-      .select("id, member_id, body")
-      .eq("topic_id", topicId)
-      .maybeSingle();
-    target = data;
-  }
+  if (!answerId) {
+    const nextSlot = async () => {
+      const { data: rows } = await supabase
+        .from("answers")
+        .select("slot")
+        .eq("topic_id", topicId)
+        .eq("member_id", session.memberId)
+        .order("slot", { ascending: false })
+        .limit(1);
+      return rows && rows.length > 0 ? rows[0].slot + 1 : 0;
+    };
 
-  if (!target) {
-    const { error } = await supabase.from("answers").insert({
-      topic_id: topicId,
-      member_id: session.memberId,
-      slot: 0,
-      body,
-      submitted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
+    const insertRow = async (slot: number) =>
+      supabase.from("answers").insert({
+        topic_id: topicId,
+        member_id: session.memberId,
+        slot,
+        body,
+        submitted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+    let { error } = await insertRow(await nextSlot());
+    if (error) {
+      // 동시 제출 경합으로 slot이 겹쳤을 가능성 — 1회만 재계산해 재시도.
+      ({ error } = await insertRow(await nextSlot()));
+    }
     if (error) return { ok: false, error: "저장하지 못했습니다." };
 
     revalidatePath(`/s/${topic.session_id}`);
     revalidatePath("/");
     revalidatePath("/me");
     return { ok: true };
+  }
+
+  const { data: target } = await supabase
+    .from("answers")
+    .select("id, member_id, topic_id, body")
+    .eq("id", answerId)
+    .maybeSingle();
+  if (!target || target.topic_id !== topicId) {
+    return { ok: false, error: "게시물을 찾을 수 없습니다." };
   }
 
   const alreadyPosted = Boolean(target.body?.trim());
@@ -256,66 +258,8 @@ export async function upsertChoiceTopicAction(
   return { ok: true };
 }
 
-// choice 전용, R1-f(사전 작성 허용) — 아직 게시물(장면 소개)이 없어도 각자
-// 입장(찬반)과 이유를 미리 적을 수 있게 한다. answers는 (topic_id,
-// member_id, slot) 유니크라 topic당 한 행뿐인 이 kind의 전제상 이 topic에
-// 아직 아무 answers 행도 없을 때만 호출된다 — 있으면 그 행(진짜 게시물이든
-// 다른 사람의 사전 작성으로 생긴 앵커든)을 그대로 재사용해 반응만 얹는다.
-// body는 null로 둬(비어 있음 = "아직 게시물 없음"의 판정 기준, 위
-// upsertChoiceTopicAction 주석 참고) 나중에 누구든 실제 게시물을 쓸 수 있게
-// 비워 둔다.
-export async function upsertChoiceStanceAction(
-  topicId: string,
-  choiceValue: string,
-  body: string
-): Promise<ActionResult> {
-  const session = await requireSession();
-  const supabase = getSupabaseServerClient();
-
-  const { data: topic } = await supabase
-    .from("topics")
-    .select("id, session_id, kind, choice_options, session:sessions(status)")
-    .eq("id", topicId)
-    .maybeSingle();
-
-  if (!topic || !topic.session || topic.kind !== "choice") {
-    return { ok: false, error: "논제를 찾을 수 없습니다." };
-  }
-  if (topic.session.status !== "open") {
-    return { ok: false, error: "지금은 입장을 밝힐 수 없습니다." };
-  }
-  if (!topic.choice_options.includes(choiceValue)) {
-    return { ok: false, error: "선택지가 올바르지 않습니다." };
-  }
-
-  const { data: existingAnswer } = await supabase
-    .from("answers")
-    .select("id")
-    .eq("topic_id", topicId)
-    .maybeSingle();
-
-  let answerId = existingAnswer?.id ?? null;
-  if (!answerId) {
-    const { data: inserted, error: insertError } = await supabase
-      .from("answers")
-      .insert({ topic_id: topicId, member_id: session.memberId, slot: 0, body: null })
-      .select("id")
-      .single();
-    if (insertError || !inserted) return { ok: false, error: "저장하지 못했습니다." };
-    answerId = inserted.id;
-  }
-
-  const error = await upsertChoiceReplyRow(supabase, answerId, session.memberId, choiceValue, body);
-  if (error) return { ok: false, error: "저장하지 못했습니다." };
-
-  revalidatePath(`/s/${topic.session_id}`);
-  revalidatePath("/");
-  return { ok: true };
-}
-
-// choice 찬반 reply upsert의 공통 본체 — upsertChoiceReplyAction(게시물이
-// 이미 있는 상태)과 upsertChoiceStanceAction(사전 작성, 앵커를 막 만든
-// 직후) 양쪽이 공유한다. 한 사람당 한 게시물에는 reply가 하나뿐이어야
+// choice 찬반 reply upsert의 본체(upsertChoiceReplyAction이 사용). 한 사람당
+// 한 게시물에는 reply가 하나뿐이어야
 // 하므로 member_id로 기존 reply를 먼저 찾아 있으면 update, 없으면 insert한다
 // — 별도 유니크 제약을 두는 대신(찬반 reply와 일반 reply를 같은 replies
 // 테이블이 공유하므로 answer_id+member_id 유니크를 강제하면 다른 kind의

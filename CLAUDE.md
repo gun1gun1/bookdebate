@@ -38,8 +38,8 @@ npm run lint     # ESLint
 - **`free` 논제** — 평평한 구조: 참여자당 답변 1개, 카드로 나란히 표시. 전원 참여 전제.
 - **`excerpt` 논제** — 2단 중첩 구조: 각 참여자가 발췌+이유를 올리고(`answers` 행), **다른 참여자들이 그 특정 발췌 아래에 사유를 덧붙인다**(그 `answer`에 달리는 `replies` 행이며, 논제에 직접 달리는 것이 아니다). 이것이 "사유 더하기" 스레드이며, 이 앱을 단순 폼과 가장 크게 구분 짓는 기능이다. 전원 참여 전제.
 - **`difficult` 논제("힘든 구절")** — `excerpt`와 같은 두 컬럼(`quote_text`/`quote_reason`)을 공유하는 선택 참여 논제. 여기 달리는 reply("같이 생각해 보니")는 모임 당일 0시(Asia/Seoul) 이후에만 쓸 수 있다 — `lib/topics.ts`의 `isPostMeetingOpen()`을 클라이언트와 서버(`upsertReplyAction`)가 함께 써서 강제한다(클라이언트 표시만으로 막지 않음).
-- **`choice` 논제** — 찬반형 선택 참여 논제. `answers.choice`(입장, `topics.choice_options` 중 하나)는 버튼 클릭 즉시 저장하고 `answers.body`(근거)는 선택 입력. 더 이상 스키마만 있는 kind가 아니라 전용 화면(`ChoiceView`)까지 정식 구현됐다 — 과거 `votes` 테이블은 이 kind가 정식화되며 R1-a에서 drop됐다.
-- **`appendix` 논제("부록논제")** — 선택 참여, 1인이 여러 개(`answers.slot`으로 구분)를 올릴 수 있는 유일한 kind. `answers.title`(선택)+`body` 사용.
+- **`choice` 논제**: 찬반형 선택 참여 논제. 참여자 누구나 구체적인 논제/장면을 게시물(`answers` 행, `slot`으로 1인 다건)로 올리고, 참여자들은 게시물마다 찬반 입장(`replies.choice`, `topics.choice_options` 중 하나, 버튼 클릭 즉시 저장)과 선택 입력인 이유(`replies.body`)를 남긴다. 화면은 `ChoiceView`. 과거 `votes` 테이블은 R1-a에서 drop됐고, 게시물 다건 허용은 2026-11에 들어갔다(`docs/DECISIONS.md` "choice 논제 다건 허용").
+- **`appendix` 논제("부록논제")** — 선택 참여, 1인이 여러 개(`answers.slot`으로 구분)를 올릴 수 있다(R1-f부터 `excerpt`, 2026-11부터 `choice`도 다건 허용). `answers.title`(선택)+`body` 사용.
 
 모든 화면, 쿼리, 관리자 편집기는 `topics.kind`에 따라 분기한다. `answers`/`replies`를 다룰 때는 `replies`가 항상 특정 `answer`에 속하며, `topic`에 직접 속하지 않는다는 점을 유념할 것 — R1부터는 5종 kind 전부의 answer에 reply를 달 수 있다(`difficult`만 위 KST 게이트가 추가로 걸림).
 
@@ -50,7 +50,7 @@ npm run lint     # ESLint
 ```
 books -> sessions (회차 1개당 책 1권)
 sessions -> topics (순서 있음, session.selector_member_id가 책을 고르고 보통 논제 1번을 담당)
-topics -> answers (free/excerpt/difficult/choice는 참여자당 1개, appendix만 slot으로 여러 개 허용)
+topics -> answers (free/difficult는 참여자당 1개, excerpt/choice/appendix는 slot으로 여러 개 허용)
 answers -> replies (R1부터 5종 kind 전부에서 의미 있음 — difficult만 KST 게이트 추가)
 sessions -> ratings (참여자당 회차당 1개, 화면에는 논제 1에 표시되지만 실질은 회차 단위)
 members.aliases text[] — 참여자들은 이름을 축약해서 씀(예: 선희→'선', 희진→'희'); 이름을 파싱하거나 표시하는 모든 곳에서 별칭 매칭이 필요함

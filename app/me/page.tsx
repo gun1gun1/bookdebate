@@ -75,7 +75,7 @@ export default async function MePage() {
               : r.answer.topic.kind === "difficult"
                 ? `→ ${r.answer.member?.name}의 힘든 구절에 같이 생각해 보니: `
                 : r.answer.topic.kind === "choice"
-                  ? `→ 나는 ${r.choice}: `
+                  ? `→ ${r.answer.member?.name}의 찬반 논제에 나는 ${r.choice}: `
                   : `→ ${r.answer.member?.name}의 글에 의견: `}
           </span>
           {r.body}

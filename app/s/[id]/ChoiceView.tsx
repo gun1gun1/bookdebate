@@ -6,25 +6,26 @@ import { useEditorLock } from "./EditorLockContext";
 import {
   upsertChoiceTopicAction,
   upsertChoiceReplyAction,
-  upsertChoiceStanceAction,
   deleteAnswerAction,
   deleteReplyAction,
 } from "./actions";
 import type { Answer, Topic } from "./types";
 
 const BAR_COLORS = ["bg-gray-900", "bg-gray-500", "bg-gray-300", "bg-gray-200"];
+const NEW = "new";
 
-// 선택 참여, 2단 구조(R1-e) — topics.body의 지시문에 따라 누구든 먼저 올리는
-// 사람이 이 논제의 유일한 게시물(구체적인 논제/장면)을 올린다. 참여자 전원
-// (작성자 포함)이 그 게시물에 찬반(topics.choice_options)으로 반응한다 —
-// 입장(choice)과 이유(선택 입력)를 같은 reply 한 행에 담는다(docs/DECISIONS.md
-// "R1-e: choice 논제 2단 구조 전환" 참고).
-// R1-f(사전 작성 허용)부터는 게시물이 없어도 각자 입장을 먼저 적을 수
-// 있다 — answers.body가 비어 있는 "앵커" 행이 topic.answers[0]로 잡히면
-// ChoicePostView가 "아직 논제가 없습니다" 안내와 함께 찬반 UI를 그대로
-// 보여준다(자세한 근거는 actions.ts의 upsertChoiceTopicAction 주석 참고).
-// 정말로 아무도(게시물도, 사전 입장도) 손대지 않은 상태(answers 행 자체가
-// 없음)일 때만 ChoiceComposeView를 보여준다.
+// 선택 참여, 2단 구조(R1-e) + 다건 허용(2026-11) — topics.body의 지시문에 따라
+// 참여자 누구나 구체적인 논제/장면을 게시물(answers 행)로 올리고, 여러
+// 사람이 각자(한 사람이 여러 개도 가능) 올릴 수 있다. 참여자 전원(작성자
+// 포함)이 게시물마다 따로 찬반(topics.choice_options)으로 반응한다 — 입장과
+// 이유(선택 입력)를 그 게시물에 대한 reply 한 행에 담는다(docs/DECISIONS.md
+// "R1-e"/"choice 논제 다건 허용" 절 참고).
+// R1-f 시절의 body=null "앵커" 행(게시물 없이 먼저 남긴 입장)은 더 이상 새로
+// 만들지 않지만, 남아 있으면 "아직 논제 게시물이 없습니다" 카드로 보여주고
+// 누구든 채울 수 있게 한다.
+// 게시물 편집기(신규/수정)는 topic 단위 EditorLockContext 키(answer:{topicId})
+// 하나를 공유하고, 어느 게시물을 편집 중인지는 로컬 상태(editingTarget)로
+// 구분한다(AppendixView와 같은 패턴).
 export function ChoiceView({
   topic,
   currentMemberId,
@@ -36,208 +37,97 @@ export function ChoiceView({
   isAdmin: boolean;
   canWrite: boolean;
 }) {
-  // choice는 topic당 answer가 최대 1개여야 하는 게 이 논제의 전제다(서버 액션이
-  // 두 번째 게시물/앵커를 만들지 않는다) — 그래도 배열이면 첫 번째 행을 그
-  // 하나로 다룬다.
-  const answer = topic.answers[0] ?? null;
-
-  if (!answer) {
-    return <ChoiceComposeView topic={topic} canWrite={canWrite} />;
-  }
-
-  return (
-    <ChoicePostView
-      topic={topic}
-      answer={answer}
-      currentMemberId={currentMemberId}
-      isAdmin={isAdmin}
-      canWrite={canWrite}
-    />
-  );
-}
-
-// 상태 1 — 이 topic에 answers 행이 아예 없다(게시물도, 사전 입장도 아무도
-// 안 한 상태). 게시물 작성 폼과 "미리 내 입장 적기" 찬반 UI를 함께 보여준다
-// — 둘 중 무엇을 먼저 하든(글 먼저 쓰거나, 입장부터 밝히거나) 다음
-// 렌더부터는 topic.answers[0]가 생겨 ChoicePostView가 이어받는다.
-function ChoiceComposeView({ topic, canWrite }: { topic: Topic; canWrite: boolean }) {
   const { openEditorKey, tryOpen, close } = useEditorLock();
   const postEditorKey = `answer:${topic.id}`;
-  const stanceEditorKey = `stance:${topic.id}`;
-  const isEditingPost = openEditorKey === postEditorKey;
-  const isEditingStance = openEditorKey === stanceEditorKey;
+  const isPostEditorOpen = openEditorKey === postEditorKey;
+  const [editingTarget, setEditingTarget] = useState<string | null>(null);
 
-  const [text, setText] = useState("");
-  const [postError, setPostError] = useState<string | null>(null);
-  const [isPostPending, startPostTransition] = useTransition();
+  // 게시물은 올린 순서대로, 본문이 빈 옛 앵커는 맨 뒤로.
+  const answers = [...topic.answers].sort((a, b) => {
+    const aPosted = Boolean(a.body?.trim());
+    const bPosted = Boolean(b.body?.trim());
+    if (aPosted !== bPosted) return aPosted ? -1 : 1;
+    return (a.submitted_at ?? "").localeCompare(b.submitted_at ?? "") || a.slot - b.slot;
+  });
 
-  const [myChoice, setMyChoice] = useState<string | null>(null);
-  const [reasonText, setReasonText] = useState("");
-  const [stanceError, setStanceError] = useState<string | null>(null);
-  const [isStancePending, startStanceTransition] = useTransition();
-
-  if (!canWrite) {
-    return <p className="text-sm text-gray-400">아직 아무도 논제를 올리지 않았습니다</p>;
+  function openPostEditor(target: string) {
+    if (!tryOpen(postEditorKey)) return;
+    setEditingTarget(target);
   }
 
-  function pick(option: string) {
-    setMyChoice(option);
-    setStanceError(null);
-    startStanceTransition(async () => {
-      const result = await upsertChoiceStanceAction(topic.id, option, reasonText);
-      if (!result.ok) setStanceError(result.error);
-    });
+  function closePostEditor() {
+    close(postEditorKey);
+    setEditingTarget(null);
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {isEditingPost ? (
-        <div className="flex flex-col gap-2">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={4}
-            placeholder="책 속에서 찬반이 갈릴 만한 구체적인 결정이나 장면을 소개해 주세요"
-            className="w-full max-w-[68ch] rounded border border-gray-300 p-2 text-[16px] leading-[1.7]"
-          />
-          {postError && <p className="text-sm text-red-600">{postError}</p>}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              disabled={isPostPending || !text.trim()}
-              onClick={() =>
-                startPostTransition(async () => {
-                  setPostError(null);
-                  const result = await upsertChoiceTopicAction(topic.id, null, text);
-                  if (!result.ok) {
-                    setPostError(result.error);
-                    return;
-                  }
-                  close(postEditorKey);
-                })
-              }
-              className="rounded bg-gray-900 px-3 py-1 text-sm text-white disabled:opacity-50"
-            >
-              저장
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setText("");
-                close(postEditorKey);
-              }}
-              className="text-sm text-gray-500 hover:underline"
-            >
-              취소
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => tryOpen(postEditorKey)}
-          className="self-start rounded border border-gray-900 px-3 py-1 text-sm"
-        >
-          논제 올리기
-        </button>
+    <div className="flex flex-col gap-8">
+      {answers.length === 0 && !canWrite && (
+        <p className="text-sm text-gray-400">아직 아무도 논제를 올리지 않았습니다</p>
       )}
 
-      <div className="border-t border-gray-100 pt-4">
-        <p className="mb-2 text-sm text-gray-600">게시물이 없어도 내 입장을 먼저 적을 수 있습니다</p>
-        <div className="flex flex-wrap gap-2">
-          {topic.choice_options.map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              disabled={isStancePending}
-              onClick={() => pick(opt)}
-              className={`rounded border px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
-                myChoice === opt
-                  ? "border-gray-900 bg-gray-900 text-white"
-                  : "border-gray-300 hover:border-gray-500"
-              }`}
-            >
-              나는 {opt}
-            </button>
-          ))}
-        </div>
+      {answers.map((answer) => (
+        <ChoicePostCard
+          key={answer.id}
+          topic={topic}
+          answer={answer}
+          currentMemberId={currentMemberId}
+          isAdmin={isAdmin}
+          canWrite={canWrite}
+          isEditingPost={isPostEditorOpen && editingTarget === answer.id}
+          onEditPost={() => openPostEditor(answer.id)}
+          onClosePostEditor={closePostEditor}
+        />
+      ))}
 
-        {myChoice &&
-          (isEditingStance ? (
-            <div className="mt-2 flex flex-col gap-2">
-              <textarea
-                value={reasonText}
-                onChange={(e) => setReasonText(e.target.value)}
-                rows={3}
-                placeholder="이유를 남겨 주세요(선택)"
-                className="w-full max-w-[68ch] rounded border border-gray-300 p-2 text-[16px] leading-[1.7]"
-              />
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  disabled={isStancePending}
-                  onClick={() =>
-                    startStanceTransition(async () => {
-                      setStanceError(null);
-                      const result = await upsertChoiceStanceAction(topic.id, myChoice, reasonText);
-                      if (!result.ok) {
-                        setStanceError(result.error);
-                        return;
-                      }
-                      close(stanceEditorKey);
-                    })
-                  }
-                  className="rounded bg-gray-900 px-3 py-1 text-sm text-white disabled:opacity-50"
-                >
-                  저장
-                </button>
-                <button
-                  type="button"
-                  onClick={() => close(stanceEditorKey)}
-                  className="text-sm text-gray-500 hover:underline"
-                >
-                  취소
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => tryOpen(stanceEditorKey)}
-              className="mt-2 text-sm text-gray-700 hover:underline"
-            >
-              {reasonText.trim() ? "이유 수정" : "이유 남기기"}
-            </button>
-          ))}
-        {stanceError && <p className="mt-2 text-sm text-red-600">{stanceError}</p>}
-      </div>
+      {canWrite &&
+        (isPostEditorOpen && editingTarget === NEW ? (
+          <ChoicePostEditor
+            topicId={topic.id}
+            answerId={null}
+            initialText=""
+            onDone={closePostEditor}
+            onCancel={closePostEditor}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => openPostEditor(NEW)}
+            className="self-start rounded border border-gray-900 px-3 py-1 text-sm"
+          >
+            {answers.length > 0 ? "찬반 논제 하나 더 올리기" : "찬반 논제 올리기"}
+          </button>
+        ))}
     </div>
   );
 }
 
-// 상태 2 — 게시물이 하나 있다. 상단에 게시물(원 작성자만 수정), 그 아래
-// 찬반 버튼 + 집계 막대, 맨 아래 진영별 이유 카드.
-function ChoicePostView({
+// 게시물 하나 — 상단에 게시물(원 작성자만 수정), 그 아래 찬반 버튼 + 집계
+// 막대, 맨 아래 진영별 이유 카드.
+function ChoicePostCard({
   topic,
   answer,
   currentMemberId,
   isAdmin,
   canWrite,
+  isEditingPost,
+  onEditPost,
+  onClosePostEditor,
 }: {
   topic: Topic;
   answer: Answer;
   currentMemberId: string;
   isAdmin: boolean;
   canWrite: boolean;
+  isEditingPost: boolean;
+  onEditPost: () => void;
+  onClosePostEditor: () => void;
 }) {
   const { openEditorKey, tryOpen, close } = useEditorLock();
-  const postEditorKey = `answer:${topic.id}`;
   const reasonEditorKey = `reply:${answer.id}`;
-  const isEditingPost = openEditorKey === postEditorKey;
   const isEditingReason = openEditorKey === reasonEditorKey;
   const isAuthor = answer.member_id === currentMemberId;
-  // R1-f(사전 작성 허용) — body가 비어 있으면 아직 아무도 실제 게시물(장면
-  // 소개)을 쓰지 않은 상태다(사전 입장만 있는 앵커일 수 있음). 이때는 누구든
+  // body가 비어 있으면 R1-f 시절의 앵커(사전 입장만 있는 행)다 — 누구든
   // canWrite면 처음 채워 넣을 수 있다(actions.ts의 upsertChoiceTopicAction
   // 주석 참고) — isAuthor 하나로만 "수정" 버튼을 판단하지 않는 이유.
   const posted = Boolean(answer.body?.trim());
@@ -280,8 +170,8 @@ function ChoicePostView({
             topicId={topic.id}
             answerId={answer.id}
             initialText={answer.body ?? ""}
-            onDone={() => close(postEditorKey)}
-            onCancel={() => close(postEditorKey)}
+            onDone={onClosePostEditor}
+            onCancel={onClosePostEditor}
           />
         ) : posted ? (
           <>
@@ -294,7 +184,7 @@ function ChoicePostView({
               {isAuthor && canWrite && (
                 <button
                   type="button"
-                  onClick={() => tryOpen(postEditorKey)}
+                  onClick={onEditPost}
                   className="text-sm text-gray-700 hover:underline"
                 >
                   수정
@@ -317,11 +207,11 @@ function ChoicePostView({
           </>
         ) : (
           <>
-            <p className="text-sm text-gray-400">아직 논제 게시물이 없습니다</p>
+            <p className="text-sm text-gray-400">아직 논제 게시물이 없습니다(먼저 남긴 입장만 있음)</p>
             {canWrite && (
               <button
                 type="button"
-                onClick={() => tryOpen(postEditorKey)}
+                onClick={onEditPost}
                 className="mt-2 rounded border border-gray-900 px-3 py-1 text-sm"
               >
                 논제 올리기
@@ -440,7 +330,7 @@ function ChoicePostEditor({
   onCancel,
 }: {
   topicId: string;
-  answerId: string;
+  answerId: string | null;
   initialText: string;
   onDone: () => void;
   onCancel: () => void;
@@ -455,6 +345,7 @@ function ChoicePostEditor({
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={4}
+        placeholder="책 속에서 찬반이 갈릴 만한 구체적인 결정이나 장면을 소개해 주세요"
         className="w-full max-w-[68ch] rounded border border-gray-300 p-2 text-[16px] leading-[1.7]"
       />
       {error && <p className="text-sm text-red-600">{error}</p>}
