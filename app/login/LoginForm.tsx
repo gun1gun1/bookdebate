@@ -72,15 +72,15 @@ export function LoginForm({ requirePin }: { requirePin: boolean }) {
                 autoFocus
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded border border-gray-300 px-3 py-2 pr-16"
+                className="w-full rounded border border-gray-300 px-3 py-2 pr-28"
                 required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-900"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded border border-gray-400 bg-white px-2 py-1 text-sm text-gray-800 hover:bg-gray-100"
               >
-                {showPassword ? "숨김" : "표시"}
+                {showPassword ? "암호 숨기기" : "암호 보기"}
               </button>
             </div>
           </label>
@@ -127,15 +127,15 @@ export function LoginForm({ requirePin }: { requirePin: boolean }) {
                 autoFocus
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
-                className="w-full rounded border border-gray-300 px-3 py-2 pr-16"
+                className="w-full rounded border border-gray-300 px-3 py-2 pr-28"
                 required
               />
               <button
                 type="button"
                 onClick={() => setShowPin((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-900"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded border border-gray-400 bg-white px-2 py-1 text-sm text-gray-800 hover:bg-gray-100"
               >
-                {showPin ? "숨김" : "표시"}
+                {showPin ? "PIN 숨기기" : "PIN 보기"}
               </button>
             </div>
           </label>
